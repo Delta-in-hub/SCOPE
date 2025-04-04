@@ -7,20 +7,19 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/joho/godotenv"
 	zmq "github.com/pebbe/zmq4"
 	"github.com/vmihailenco/msgpack/v5"
 )
 
 // --- Struct definitions (identical to before) ---
 type CommandPayload struct {
-	_msgpack     struct{} `msgpack:",array"`
 	CommandID    int32
 	TargetDevice string
 	Parameter    float64
 }
 
 type StatusUpdatePayload struct {
-	_msgpack   struct{} `msgpack:",array"`
 	SourceID   int32
 	StatusCode string
 	Details    string
@@ -163,6 +162,8 @@ func processor(msgChan <-chan RawMessage, wg *sync.WaitGroup) {
 
 // --- Main Function ---
 func main() {
+	godotenv.Load(".env")
+
 	// ZMQ Context and Socket Setup (SUB)
 	context, err := zmq.NewContext()
 	if err != nil {

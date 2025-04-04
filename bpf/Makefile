@@ -4,7 +4,7 @@ CFLAGS = -Wall -g -std=c99 # -g enables debugging symbols
 LDFLAGS =
 
 # Libraries (adjust paths if necessary)
-LIBS = -lzmq -lmsgpack-c -lpthread
+LIBS = -lzmq -lmsgpack-c -lpthread -lrt
 
 # Include paths (adjust if installed in non-standard location)
 # Example: CFLAGS += -I/usr/local/include
@@ -15,6 +15,8 @@ TARGET = sender
 
 # Source file
 SRC = sender.c
+SRC += ipc_models.c
+
 
 # Default target
 all: $(TARGET)
