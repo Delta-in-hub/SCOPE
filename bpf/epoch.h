@@ -1,7 +1,7 @@
 #pragma once
 
-#ifndef _POSIX_C_SOURCE
-#define _POSIX_C_SOURCE 199309L // 或者更高版本，以确保 clock_gettime 可用
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
 #endif
 #include <stdint.h>
 #include <stdio.h>
