@@ -7,18 +7,7 @@
 #include <sys/resource.h>
 #include <bpf/libbpf.h>
 #include "openat2ring.skel.h"
-#include <stdbool.h>
-
-// 定义与 BPF 程序中匹配的数据结构
-#define MAX_FILENAME_LEN 512
-#define TASK_COMM_LEN 16
-struct event {
-	pid_t pid;
-	long ret;
-	bool is_exit;
-	char comm[TASK_COMM_LEN];
-	char filename[MAX_FILENAME_LEN];
-};
+#include "openat2ring.h"
 
 // libbpf 打印回调函数
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args)

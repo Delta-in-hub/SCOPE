@@ -3,27 +3,16 @@
 #include <bpf/bpf_core_read.h> // 用于 bpf_probe_read_user_str
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
-#include <stdbool.h> // 用于 bool 类型
+#include "openat2ring.h"
+
 
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
-
-#define MAX_FILENAME_LEN 512
-#define TASK_COMM_LEN 16 // 内核任务 comm 长度
-
-// 定义要通过 ringbuf 发送到用户空间的数据结构
-struct event {
-    pid_t pid;
-    long ret;                        // fexit 的返回值
-    bool is_exit;                    // 标记是 fentry 还是 fexit 事件
-    char comm[TASK_COMM_LEN];        // 进程名
-    char filename[MAX_FILENAME_LEN]; // 文件名
-};
 
 // 定义 ringbuf map
 // 用户空间程序将从此 map 读取事件
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
-    __uint(max_entries, 1024 * 1024); // 256 KB 缓冲区大小，可调整
+    __uint(max_entries, 1024 * 1024);
 } rb SEC(".maps");
 
 // --- fentry 钩子 ---
