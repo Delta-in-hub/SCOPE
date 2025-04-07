@@ -1,21 +1,23 @@
 # 目标应用程序名称 (可以被命令行覆盖: make APP=...)
 APP ?= openat2ring
 
+APP_SOURCE_DIR := ./$(APP)
+APP_OUTPUT := ./build
+FINAL_BINARY := $(APP_OUTPUT)/$(APP)
 
-# 输出目录，存放所有编译产物
+# 依赖输出目录，存放所有编译产物
 OUTPUT := ./build/libbpf
 # BPF 源文件
-APP_BPF_SRCS := $(APP).bpf.c
+# APP_BPF_SRCS := $(APP).bpf.c
+APP_BPF_SRCS := $(APP_SOURCE_DIR)/$(APP).bpf.c
 # 用户空间 C 源文件
-APP_C_SRCS := $(APP).c
+APP_C_SRCS := $(APP_SOURCE_DIR)/$(APP).c
 
 # ---- 工具链定义 ----
 
 # Clang 编译器，用于编译 BPF 代码，如果环境中定义了 CLANG，则使用环境的
 CLANG ?= clang
 # C 编译器，用于编译用户空间代码，如果环境中定义了 CC，则使用环境的
-# $(call allow-override...) 用于确保命令行或环境变量可以覆盖默认值 'cc'
-# 这里我们直接使用 ?= gcc，更简洁常用
 CC ?= clang
 # 链接器，通常由 CC 驱动，无需单独指定 LD 除非有特殊需求
 # LD ?= ld
@@ -54,11 +56,11 @@ BPFTOOL_OUTPUT := $(abspath $(OUTPUT)/bpftool)
 
 
 # BPF 目标文件路径
-APP_BPF_OBJ := ./build/$(APP).bpf.o
+APP_BPF_OBJ := $(APP_OUTPUT)/$(APP).bpf.o
 # BPF 骨架头文件路径
-APP_SKEL := ./build/$(APP).skel.h
+APP_SKEL := $(APP_OUTPUT)/$(APP).skel.h
 # 用户空间目标文件路径
-APP_USER_OBJ := ./build/$(APP).o
+APP_USER_OBJ := $(APP_OUTPUT)/$(APP).o
 
 # ---- 编译和链接标志 ----
 
@@ -70,15 +72,16 @@ CFLAGS := -g -Wall -O2
 LDFLAGS :=
 # libbpf 依赖的库
 LIBBPF_LIBS := -lelf -lz # libelf 和 zlib 通常是 libbpf 的依赖
+USER_LIBS := -lzmq -lmsgpack-c -lpthread -lrt
 
 # 头文件搜索路径
 # -I$(OUTPUT): 包含生成的 .skel.h 和可能的 vmlinux.h 副本
 # -I.: 包含项目本地的 .h 文件 (如 opensnoop.h)
 # -I$(LIBBPF_SRC)/.. : 指向 libbpf 源码的根目录，以便能找到 include/uapi 等
 # -I$(VMLINUX_H_DIR): 包含 vmlinux.h
-INCLUDES := -I./build -I$(OUTPUT) -I. -I$(abspath ./libbpf-bootstrap/libbpf/include/uapi) -I$(VMLINUX_H_DIR)
+INCLUDES := -I$(APP_SOURCE_DIR) -I$(APP_OUTPUT) -I$(abspath ./libbpf-bootstrap/libbpf/include/uapi) -I$(VMLINUX_H_DIR) -I.
 # 将 INCLUDES 添加到 CFLAGS
-CFLAGS += $(INCLUDES)
+CFLAGS += $(INCLUDES) $(USER_LIBS)
 
 # BPF 编译器标志
 # -g: 生成调试信息 (对 CO-RE 很重要)
@@ -118,16 +121,21 @@ endif
 
 # 默认目标：编译最终的应用程序
 .PHONY: all
-all: $(APP)
+all: $(FINAL_BINARY)
+
 
 # 清理目标：删除所有生成的文件
 .PHONY: clean
 clean:
-	$(call msg,CLEAN,$(OUTPUT) $(APP))
-	$(Q)$(RM) -r $(OUTPUT) $(APP)
+	$(call msg,CLEAN,$(APP_OUTPUT) $(APP))
+	$(Q)$(RM) $(APP_OUTPUT)/$(APP) $(APP_OUTPUT)/$(APP).o $(APP_OUTPUT)/$(APP).skel.h $(APP_OUTPUT)/$(APP).bpf.o
 
 # 确保输出目录存在
 $(OUTPUT):
+	$(call msg,MKDIR,$@)
+	$(Q)mkdir -p $@
+
+$(APP_OUTPUT):
 	$(call msg,MKDIR,$@)
 	$(Q)mkdir -p $@
 
@@ -164,9 +172,8 @@ $(BPFTOOL): $(wildcard $(BPFTOOL_SRC)/*.[ch] $(BPFTOOL_SRC)/Makefile) | $(BPFTOO
 # 编译 BPF C 源文件 -> BPF 目标文件 (.bpf.o)
 # 依赖：BPF C 源文件, 依赖的头文件 (.h), vmlinux.h, libbpf (间接), bpftool (生成最终对象)
 # 依赖：输出目录 $(OUTPUT), bpftool 工具
-$(APP_BPF_OBJ): $(APP_BPF_SRCS) $(VMLINUX) $(BPFTOOL) | $(OUTPUT)
+$(APP_BPF_OBJ): $(APP_BPF_SRCS) $(VMLINUX) $(BPFTOOL) | $(APP_OUTPUT)
 	$(call msg,BPF,$@)
-	# 编译 BPF C 代码为临时的 .o 文件
 	$(Q)$(CLANG) $(BPF_CFLAGS) -c $(APP_BPF_SRCS) -o $(@).tmp
 	$(Q)$(BPFTOOL) gen object $@ $(@).tmp
 	$(Q)$(RM) $(@).tmp
@@ -174,22 +181,24 @@ $(APP_BPF_OBJ): $(APP_BPF_SRCS) $(VMLINUX) $(BPFTOOL) | $(OUTPUT)
 # 生成 BPF 骨架头文件 (.skel.h)
 # 依赖：BPF 目标文件 (.bpf.o)
 # 依赖：输出目录 $(OUTPUT), bpftool 工具
-$(APP_SKEL): $(APP_BPF_OBJ) | $(OUTPUT) $(BPFTOOL)
+$(APP_SKEL): $(APP_BPF_OBJ) | $(APP_OUTPUT) $(BPFTOOL)
 	$(call msg,GEN-SKEL,$@)
 	$(Q)$(BPFTOOL) gen skeleton $< > $@
 
 # 编译用户空间 C 源文件 -> 用户空间目标文件 (.o)
 # 依赖：用户空间 C 源文件, 依赖的头文件 (.h), 生成的骨架头文件 (.skel.h)
 # 依赖：输出目录 $(OUTPUT)
-$(APP_USER_OBJ): $(APP_C_SRCS) $(APP_SKEL) | $(OUTPUT)
+$(APP_USER_OBJ): $(APP_C_SRCS) $(APP_SKEL) | $(APP_OUTPUT)
 	$(call msg,CC,$@)
 	$(Q)$(CC) $(CFLAGS) -c $(APP_C_SRCS) -o $@
 
+
+
 # 链接最终的应用程序
 # 依赖：用户空间目标文件 (.o), libbpf 静态库 (.a)
-$(APP): $(APP_USER_OBJ) $(LIBBPF_OBJ)
-	$(call msg,BINARY,$@)
-	$(Q)$(CC) $(CFLAGS) $(APP_USER_OBJ) $(LIBBPF_OBJ) $(ALL_LDFLAGS) -o ./build/$@
+$(FINAL_BINARY): $(APP_USER_OBJ) $(LIBBPF_OBJ)
+	$(call msg,BINARY,$(FINAL_BINARY))
+	$(Q)$(CC) $(CFLAGS) $(APP_USER_OBJ) $(LIBBPF_OBJ) $(ALL_LDFLAGS) -o $@
 
 # ---- 其他设置 ----
 

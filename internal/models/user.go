@@ -9,9 +9,9 @@ type User struct {
 	ID          string    `json:"id"`
 	Email       string    `json:"email"`
 	Password    string    `json:"-"` // 不在JSON响应中显示密码
-	DisplayName string    `json:"display_name"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	DisplayName string    `json:"display_name" db:"display_name"`
+	CreatedAt   time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
 }
 
 // UserStore 定义用户存储接口

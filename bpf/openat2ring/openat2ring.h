@@ -11,3 +11,5 @@ struct event {
     char comm[TASK_COMM_LEN];        // 进程名
     char filename[MAX_FILENAME_LEN]; // 文件名
 };
+
+// 定义这个头文件的时候, 最好直接使用基本的数据类型, 比如 pid_t -> int

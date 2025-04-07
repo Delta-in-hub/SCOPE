@@ -1,10 +1,12 @@
-// SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
+
+// include 的 头文件 需要严格控制, 仅限以下
+
 #include "vmlinux.h"
 #include <bpf/bpf_core_read.h> // 用于 bpf_probe_read_user_str
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
+// #include <linux/bpf.h>     // 不要 include 这个头文件
 #include "openat2ring.h"
-
 
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
@@ -12,10 +14,12 @@ char LICENSE[] SEC("license") = "Dual BSD/GPL";
 // 用户空间程序将从此 map 读取事件
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
-    __uint(max_entries, 1024 * 1024);
+    __uint(max_entries, 1024 * 1024); // 1MB
 } rb SEC(".maps");
 
 // --- fentry 钩子 ---
+// fentry/fexit 必须要使用 BPF_PROG
+// 函数签名必须和内核函数一致, 但是注意类似 __user 不要加到 bpf 的函数签名中
 SEC("fentry/do_sys_openat2")
 int BPF_PROG(openat2_entry, int dfd, const char *filename,
              struct open_how *how) {

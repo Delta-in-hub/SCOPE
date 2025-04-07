@@ -20,7 +20,7 @@
   - sqlx
   - github.com/denisbrodbeck/machineid
 - zeromq
-- InfluxDB
+- TimescaleDB
 - Grafana
 - docker
 - perfetto tracing json  （Tracing 图）

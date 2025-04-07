@@ -16,6 +16,7 @@ func SetupRouter(handler *Handler, authMiddleware *authMiddleware.AuthMiddleware
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+	r.Use(middleware.Heartbeat("/health"))
 
 	// 公共路由（无需认证）
 	r.Route("/api/v1/auth", func(r chi.Router) {
