@@ -1,0 +1,32 @@
+services:
+  postgres: # 这个服务现在同时承担 PostgreSQL 和 TimescaleDB 的角色
+    image: timescale/timescaledb:2.18.0-pg17 # 使用官方 TimescaleDB 镜像，基于 PostgreSQL 17
+    container_name: scope-dev-postgres-timescaledb # 可以稍微改名以示区分，或保持原名
+    ports:
+      - "55432:5432" # 暴露 PostgreSQL/TimescaleDB 端口到宿主机 55432
+    volumes:
+      - postgres_data:/var/lib/postgresql/data # 数据卷保持不变
+    environment:
+      # PostgreSQL 初始化配置 (同样适用于 TimescaleDB 镜像)
+      - POSTGRES_USER=devuser
+      - POSTGRES_PASSWORD=devpassword123 # !! 极不安全, 仅限开发 !!
+      - POSTGRES_DB=devdb # TimescaleDB 扩展需要在这个数据库中启用
+    # 通过 command 传递配置参数来设置日志级别
+    command: postgres -c log_min_messages=WARNING
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4.2 # 建议指定明确的版本
+    container_name: scope-dev-redis
+    ports:
+      - "56379:6379" # 暴露 Redis 端口到宿主机
+    volumes:
+      - redis_data:/data # 使用命名卷持久化数据 (如果需要持久化)
+    # 如果需要密码保护 (推荐)
+    command: redis-server --loglevel warning --requirepass devpassword123 # !! 极不安全, 仅限开发 !!
+    restart: unless-stopped
+
+# 定义命名卷，Docker 会自动管理它们的生命周期
+volumes:
+  postgres_data:
+  redis_data:
