@@ -1,0 +1,71 @@
+#! sudo bpftrace
+
+
+enum ggml_cgraph_eval_order {
+    GGML_CGRAPH_EVAL_ORDER_LEFT_TO_RIGHT = 0,
+    GGML_CGRAPH_EVAL_ORDER_RIGHT_TO_LEFT,
+    GGML_CGRAPH_EVAL_ORDER_COUNT
+};
+
+struct ggml_hash_set {
+    size_t size;
+    void * used;       // whether or not the keys are in use i.e. set
+    void ** keys; // actual tensors in the set, keys[i] is only defined if ggml_bitset_get(used, i)
+};
+
+struct ggml_cgraph {
+    int size;    // maximum number of nodes/leafs/grads/grad_accs
+    int n_nodes; // number of nodes currently in use
+    int n_leafs; // number of leafs currently in use
+
+    void ** nodes;     // tensors with data that can change if the graph is evaluated
+    void ** grads;     // the outputs of these tensors are the gradients of the nodes
+    void ** grad_accs; // accumulators for node gradients
+    void ** leafs;     // tensors with constant data
+
+    struct ggml_hash_set visited_hash_set;
+
+    enum ggml_cgraph_eval_order order;
+};
+
+
+
+/*
+libggml-cpu-alderlake.so
+
+
+1.  **`uprobe:/usr/lib/ollama/libggml-cpu-alderlake.so:ggml_graph_compute`** (CPU 后端)
+    *   **原因**: 这是 GGML 在 CPU 上执行计算图的核心函数。监控此函数的进入和退出，可以了解 CPU 计算任务的开始和结束，以及大致的执行时间。其调用频率（40次）虽然不高，但每次调用都代表一个重要的计算阶段。
+
+*/
+
+
+// enum ggml_status  ggml_graph_compute(struct ggml_cgraph * cgraph, struct ggml_cplan * cplan);
+
+uprobe:/usr/lib/ollama/libggml-cpu-alderlake.so:ggml_graph_compute
+{
+    $cgraph = (struct ggml_cgraph *)arg0;
+    $size = $cgraph->size;
+    $n_nodes = $cgraph->n_nodes;
+    $n_leafs = $cgraph->n_leafs;
+    $order = $cgraph->order;
+    @ggml_graph_compute[pid] = nsecs;
+    if ($order == 0) {
+        printf("%d %s ggml_graph_compute(GGML_CGRAPH_EVAL_ORDER_LEFT_TO_RIGHT) %d %d %d\n", pid, comm, $size, $n_nodes, $n_leafs);
+    } else if ($order == 1) {
+        printf("%d %s ggml_graph_compute(GGML_CGRAPH_EVAL_ORDER_RIGHT_TO_LEFT) %d %d %d\n", pid, comm, $size, $n_nodes, $n_leafs);
+    } else if ($order == 2) {
+        printf("%d %s ggml_graph_compute(GGML_CGRAPH_EVAL_ORDER_COUNT) %d %d %d\n", pid, comm, $size, $n_nodes, $n_leafs);
+    } else {
+        printf("%d %s ggml_graph_compute(GGML_CGRAPH_EVAL_ORDER_UNKNOWN) %d %d %d\n", pid, comm, $size, $n_nodes, $n_leafs);
+    }
+}
+
+
+uretprobe:/usr/lib/ollama/libggml-cpu-alderlake.so:ggml_graph_compute
+{
+    $calltime = @ggml_graph_compute[pid];
+    $cost = nsecs - $calltime;
+    delete(@ggml_graph_compute[pid]);
+    printf("%d %s ggml_graph_compute cost %d ns\n", pid, comm, $cost);
+}

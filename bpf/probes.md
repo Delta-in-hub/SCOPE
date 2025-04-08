@@ -10,11 +10,14 @@
 - GPU(CUDA)
   - cudaMalloc
   - cudaFree
-  - cudaMallocHost
-  - cudaFreeHost
+  - cudaMallocHost (TODO)
+  - cudaFreeHost (TODO)
   - cudaLaunchKernel
   - cudaMemcpy
   - cudaDeviceSynchronize
+
+> Works for ollama
+
 
 > https://docs.python.org/3/howto/instrumentation.html
 - Python
@@ -25,42 +28,38 @@
 - Ollama
   - uprobe:/usr/bin/ollama:llamaLog
     - extern void llamaLog(int level, char* text, void* user_data);
-  - uprobe:/usr/lib/ollama/libggml-base.so:gguf_init_from_file
-  - uprobe:/usr/lib/ollama/libggml-base.so:gguf_init_from_file, gguf_init_from_file_impl
-    - (高价值 - 模型加载) 指示开始从文件加载 GGUF 模型。可以计时这个函数的执行时间来大致了解模型加载耗时。
-  - uprobe:/usr/lib/ollama/libggml-base.so:ggml_new_tensor*, ggml_set_param
-    - (中等价值) 在内存中构建计算图（创建张量、设置参数）。
-  - uprobe:/usr/lib/ollama/libggml-base.so:ggml_graph_compute
-    - (高价值 - 计算图执行) 非常重要。这通常是触发整个计算图执行的入口点（在特定后端执行前）。监控它的调用标志着推理计算的开始。
-  - uprobe:/usr/lib/ollama/libggml-base.so:ggml_backend_sched_graph_compute
-    - (高价值 - 后端调度) 如果 Ollama 使用调度器在多个后端（CPU/GPU）之间分配工作，这个函数是调度执行的入口。
-  - uprobe:/usr/lib/ollama/libggml-base.so:ggml_backend_tensor_alloc, ggml_backend_tensor_copy
-    - (高价值 - 跨后端操作) 指示在某个后端（可能是 CPU 或 GPU）分配张量，或在不同后端之间拷贝张量数据。这是监控数据流动的关键点。
-  - uprobe:/usr/lib/ollama/libggml-base.so:ggml_mul_mat
-    - (较高价值) 通用的矩阵乘法操作入口。监控它可以了解 MatMul 的总体频率，无论是在 CPU 还是 GPU 上执行。
 
-  - uprobe:/usr/lib/ollama/libggml-cpu-alderlake.so:ggml_graph_compute, ggml_graph_compute_with_ctx
-    - (高价值 - CPU 计算) 这些函数表明计算图正在CPU上执行。监控它们可以确认 CPU 是否被用于推理。
-  - uprobe:/usr/lib/ollama/libggml-cpu-alderlake.so:ggml_threadpool_*
-    - (中等价值) CPU 线程池管理，了解 CPU 并行计算的启动和停止。
+  - uprobe:/usr/lib/ollama/libggml-cpu-alderlake.so:ggml_graph_compute
+    - 这是 GGML 在 CPU 上执行计算图的核心函数。监控此函数的进入和退出，可以了解 CPU 计算任务的开始和结束，以及大致的执行时间。其调用频率（40次）虽然不高，但每次调用都代表一个重要的计算阶段。
 
-  - uprobe:/usr/lib/ollama/cuda_v12/libggml-cuda.so:ggml_cuda_op_*, ggml_cuda_*_cuda
-    - (高价值 - GPU 计算) 这些函数表明特定的 GGML 操作（如矩阵乘法 mul_mat, add, rope, norm 等）正在被卸载到 GPU执行。监控它们可以确认 GPU 是否在工作以及哪些操作在 GPU 上运行。
-  - uprobe:/usr/lib/ollama/cuda_v12/libggml-cuda.so:launch_fattn<*>: (极高价值 - GPU 计算) 非常重要。直接表明正在启动 FlashAttention CUDA kernel。这是现代 LLM 中计算量最大的部分之一。监控它可以确认是否在使用 FlashAttention 以及频率。
-  - uprobe:/usr/lib/ollama/cuda_v12/libggml-cuda.so:ggml_cuda_init, ggml_cuda_set_device: (中等价值) GPU 初始化和设备选择。
-  - uprobe:/usr/lib/ollama/cuda_v12/libggml-cuda.so:ggml_cuda_cpy, ggml_cuda_cpy_fn: (较高价值 - GPU 数据传输) GGML 层面的 GPU 数据拷贝操作。结合 CUDA API 的 cudaMemcpy* 可以更全面地了解数据移动。
+  - uprobe:/usr/lib/ollama/cuda_v12/libggml-cuda.so:ggml_cuda_op_mul_mat_vec_q
+    - 这是 GGML 在 GPU 上执行 quantized matrix-vector 乘法的核心函数。监控此函数的进入和退出，可以了解 GPU 计算任务的开始和结束，以及大致的执行时间。其调用频率（9975次）非常高，表明了 GPU 计算任务的密集程度。
 
-  - 和底层 CUDA 库 (libcudart.so, libcuda.so) 的交互, PID or comm
+  - uprobe:/usr/lib/ollama/cuda_v12/libggml-cuda.so:ggml_cuda_op_mul_mat_q
+    - 这是 GGML 在 GPU 上执行 quantized matrix-matrix 乘法的核心函数。监控此函数的进入和退出，可以了解 GPU 计算任务的开始和结束，以及大致的执行时间。其调用频率（165次）虽然不高，但每次调用都代表一个重要的计算阶段。
+
+  - uprobe:/usr/lib/ollama/cuda_v12/libggml-cuda.so:ggml_cuda_pool_vmm::alloc (TODO)
+    - 这两个函数直接关联到 CUDA 虚拟内存管理（VMM）池的内存分配和释放。监控它们可以精确地追踪 GPU 显存的使用情况，了解显存的动态分配/释放模式，对于诊断显存不足或碎片化问题非常有价值。高调用频率（10473 次）说明 GPU 内存操作非常频繁。
+  - uprobe:/usr/lib/ollama/cuda_v12/libggml-cuda.so:ggml_cuda_pool_vmm::free (TODO)
+
+  - uprobe:/usr/lib/ollama/cuda_v12/libggml-cuda.so:ggml_cuda_cpy (TODO)
+    - 这个函数负责在 GPU 内部或 Host（CPU内存）与 Device（GPU显存）之间复制数据。数据传输是常见的性能瓶颈之一。监控此函数可以了解数据传输的方向、大小和频率，有助于识别不必要的传输或优化传输策略。调用频率（4320 次）也相当高。
+
+  - uprobe:/usr/lib/ollama/libggml-base.so:ggml_aligned_malloc (TODO)
+    - 这是底层的 CPU 内存分配和释放。虽然 GPU 内存通常更关键，但监控 CPU 内存分配有助于了解整体资源使用情况，特别是在模型加载或 CPU / GPU 混合执行的场景下。
+
+  - uprobe:/usr/lib/ollama/cuda_v12/libggml-cuda.so:ggml_cuda_set_device (TODO)
+    - 如果系统中有多个 GPU，这个函数用于选择当前活动的 GPU 设备。监控它可以确认 Ollama 是否正确地使用了预期的 GPU，或者是否存在不必要的设备切换。
 
 
 > https://github.com/iovisor/bcc/tree/master/libbpf-tools
 - Process (via pid or comm)
-  - all system calls
-  - 子进程创建
-  - 进程调度, sched_wakeup , sched_switch
-  - 文件系统操作, vfs_open 打开文件的路径
-  - 网络活动
-    -  TCP/UDP 连接建立的延迟和频率、TCP 连接的生命周期、数据收发、DNS 解析延迟。
+  - all system calls (done -> syscalls)
+  - 子进程创建 (done -> execv)
+  - 进程调度, sched_wakeup , sched_switch (done -> sched)
+  - 文件系统操作, vfs_open 打开文件的路径 (done -> vfs_open)
+  - 网络活动 (TODO)
+    -  TCP/UDP 连接建立的延迟和频率、TCP 连接的生命周期、数据收发、
 
 
 

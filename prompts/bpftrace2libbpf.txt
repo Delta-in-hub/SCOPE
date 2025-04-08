@@ -1,0 +1,378 @@
+
+你是 libbpf 和 bpftrace 的专家.
+用中文回答, 转换 bpftrace 脚本为 libbpf.
+
+注意他们之间的对应关系, bpftrace 和 libbpf 之间的对应关系; libbpf 的不同文件之间的对应关系.
+
+注意代码安全, 完备. bpf 程序要能够通过 eBPF Verifier.
+
+
+以下是一个例子:
+```bpftrace
+#! sudo bpftrace
+
+// extern void llamaLog(int level, char* text, void* user_data);
+uprobe:/usr/bin/ollama:llamaLog
+{
+    $level = arg0;
+    $text = arg1;
+    printf("%d %s llamaLog %d %s\n", pid, comm, $level, str($text));
+}
+
+```
+
+
+
+应该转化为以下的 libbpf 代码:
+
+ollamabin.h
+```
+#pragma once   // 在这个头文件中, 不要 include 任何头文件, 避免冲突. 类型尽量用基本类型, 或者 自己 定义.
+
+#define TASK_COMM_LEN 16
+#define TEXT_LEN 140
+#define MAX_ENTRIES	10240
+
+
+struct event {
+    int pid;
+    char comm[TASK_COMM_LEN];
+    char text[TEXT_LEN];
+};
+
+```
+
+ollamabin.bpf.c
+```
+#include "vmlinux.h"
+#include <bpf/bpf_core_read.h>
+#include <bpf/bpf_helpers.h>
+#include <bpf/bpf_tracing.h>
+#include "ollamabin.h"  // 自己的头文件必须在最下面, 顺序很重要
+
+const volatile pid_t filter_pid = 0;
+const volatile char filter_comm[TASK_COMM_LEN];
+
+char LICENSE[] SEC("license") = "Dual BSD/GPL";
+
+struct {
+    __uint(type, BPF_MAP_TYPE_RINGBUF);
+    __uint(max_entries, 1024 * 1024);
+} rb SEC(".maps");
+
+struct logident {  // map 中的值定义
+    int pid;
+    uint64_t ts;
+    char * textp;
+};
+
+// struct {
+// 	__uint(type, BPF_MAP_TYPE_HASH);
+// 	__uint(max_entries, MAX_ENTRIES);
+// 	__type(key, int);  // pid
+// 	__type(value, struct logident);
+// } llamaLogmap SEC(".maps");
+
+
+static __always_inline int comm_allowed(const char *comm) {  // 不要修改这个函数
+    #pragma unroll
+    for (int i = 0; i < TASK_COMM_LEN && filter_comm[i] != '\0'; i++) {
+        if (comm[i] != filter_comm[i])
+            return 0;
+    }
+    return 1;
+}
+
+static __always_inline int process_allowed(pid_t pid, const char *comm) {  // 不要修改这个函数
+    if (filter_pid != 0 && pid != filter_pid)
+        return 0;
+    if (filter_comm[0] != '\0' && !comm_allowed(comm))
+        return 0;
+    return 1;
+}
+
+
+SEC("uprobe")
+int BPF_KPROBE(uprobe_llamaLog, int level, char* text, void* user_data)
+{
+    int pid = bpf_get_current_pid_tgid() >> 32;
+    char comm[TASK_COMM_LEN];
+    bpf_get_current_comm(&comm, sizeof(comm));
+    if (!process_allowed(pid, comm))
+        return 0;
+	uint64_t ts = bpf_ktime_get_ns();  // Return the time elapsed since system boot, in nanoseconds.
+
+    // struct logident ident = {
+    //     .pid = pid,
+    //     .ts = ts,
+    //     .textp = text
+    // };
+    // bpf_map_update_elem(&llamaLogmap, &pid, &ident, BPF_ANY);
+    struct event *ev = bpf_ringbuf_reserve(&rb, sizeof(struct event), 0);
+    if (ev == NULL) {
+        return 0;
+    }
+    ev->pid = pid;
+    bpf_get_current_comm(&ev->comm, sizeof(ev->comm));
+    bpf_probe_read_user_str(ev->text, sizeof(ev->text), text);
+    bpf_ringbuf_submit(ev, 0);
+	return 0;
+}
+
+
+// SEC("uretprobe")
+// int BPF_KRETPROBE(uretprobe_llamaLog, int ret)
+// {
+//     int pid = bpf_get_current_pid_tgid() >> 32;
+//     uint64_t ts = bpf_ktime_get_ns();
+//     struct logident *ident = bpf_map_lookup_elem(&llamaLogmap, &pid);
+//     if (ident == NULL) {
+//         return 0;
+//     }
+//     struct event *ev = bpf_ringbuf_reserve(&rb, sizeof(struct event), 0);
+//     if (ev == NULL) {
+//         return 0;
+//     }
+//     ev->pid = pid;
+//     bpf_get_current_comm(&ev->comm, sizeof(ev->comm));
+//     ev->cost_ns = ts - ident->ts;
+//     bpf_probe_read_user_str(ev->text, sizeof(ev->text), ident->textp);
+//     bpf_ringbuf_submit(ev, 0);
+//     bpf_map_delete_elem(&llamaLogmap, &pid);
+// 	return 0;
+// }
+```
+
+ollamabin.c
+```
+#include <argp.h>
+#include <bpf/bpf.h>
+#include <bpf/libbpf.h>
+#include <errno.h>
+#include <limits.h> // For PATH_MAX
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/resource.h>
+#include <time.h>
+#include <unistd.h>
+
+// 包含你的事件结构定义和 TASK_COMM_LEN
+#include "ollamabin.h"
+// 包含 libbpf 生成的骨架头文件
+#include "ollamabin.skel.h"
+
+// 定义默认的探测路径
+#define DEFAULT_OLLAMA_PATH "/usr/bin/ollama"
+// 定义要探测的函数名
+#define TARGET_FUNC_NAME "llamaLog"
+
+// 环境配置结构体
+static struct env {
+    pid_t pid;                   // 过滤 PID
+    char filter_comm[TASK_COMM_LEN]; // 过滤进程名 (修正了原先的 parent_comm)
+    char target_path[PATH_MAX];  // 要探测的目标二进制文件路径
+    bool verbose;                // 是否启用详细日志
+} env = {
+    .pid = 0,
+    .filter_comm = "",
+    .target_path = DEFAULT_OLLAMA_PATH, // 初始化为默认路径
+    .verbose = false,
+};
+
+const char *argp_program_version = "ollamabin 0.1";
+const char *argp_program_bug_address = "DeltaMail@qq.com";    // 这就是我的邮箱, 就用这个
+const char argp_program_doc[] =
+    "ollamabin: Monitor Ollama's llamaLog function using eBPF.\n\n"
+    "USAGE: ./ollamabin [-p PID] [-c COMM] [-f FILE_PATH] [-v]\n";
+
+// 命令行选项定义
+static const struct argp_option opts[] = {
+    {"pid", 'p', "PID", 0, "Filter by process PID"},
+    {"comm", 'c', "COMMAND", 0, "Filter by process command name"},
+    {"file", 'f', "FILE_PATH", 0, "Path to the Ollama binary to probe (default: " DEFAULT_OLLAMA_PATH ")"},
+    {"verbose", 'v', NULL, 0, "Verbose debug output"},
+    {},
+};
+
+// 解析命令行参数
+static error_t parse_arg(int key, char *arg, struct argp_state *state) {
+    long pid_in;
+    switch (key) {
+    case 'p':
+        errno = 0;
+        pid_in = strtol(arg, NULL, 10);
+        if (errno || pid_in <= 0) {
+            fprintf(stderr, "Invalid PID: %s\n", arg);
+            argp_usage(state);
+        }
+        env.pid = (pid_t)pid_in;
+        break;
+    case 'c':
+        if (strlen(arg) >= TASK_COMM_LEN) {
+            fprintf(stderr, "Command name too long (max %d): %s\n",
+                    TASK_COMM_LEN - 1, arg);
+            argp_usage(state);
+        }
+        strncpy(env.filter_comm, arg, TASK_COMM_LEN);
+        // 不需要手动添加 null 终止符，因为 env.filter_comm 初始化时已清零
+        break;
+    case 'f':
+        if (strlen(arg) >= PATH_MAX) {
+            fprintf(stderr, "Target file path too long (max %d): %s\n",
+                    PATH_MAX - 1, arg);
+            argp_usage(state);
+        }
+        strncpy(env.target_path, arg, PATH_MAX);
+         // 不需要手动添加 null 终止符，因为 env.target_path 初始化时已清零
+        break;
+    case 'v':
+        env.verbose = true;
+        break;
+    default:
+        return ARGP_ERR_UNKNOWN;
+    }
+    return 0;
+}
+
+// argp 解析器结构
+static const struct argp argp = {
+    .options = opts,
+    .parser = parse_arg,
+    .doc = argp_program_doc,
+};
+
+// libbpf 打印回调函数
+static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args) {
+    // 只在 verbose 模式下打印 DEBUG 级别的消息
+    if (level == LIBBPF_DEBUG && !env.verbose)
+        return 0;
+    return vfprintf(stderr, format, args);
+}
+
+// 退出标志
+static volatile bool exiting = false;
+
+// 信号处理函数
+static void sig_handler(int sig) { exiting = true; }
+
+// Ring buffer 事件处理回调函数
+static int handle_event(void *ctx, void *data, size_t data_sz) {
+    if (exiting) return -1;
+
+    // 将接收到的原始数据转换为 event 结构体指针
+    const struct event *e = data;
+
+    // 获取当前时间并格式化
+    char ts[32];
+    time_t t = time(NULL);
+    struct tm *tm_info = localtime(&t);
+    // 检查 localtime 返回值
+    if (tm_info == NULL) {
+         perror("localtime failed");
+         // 可以选择继续，但时间戳会不正确，或者返回错误
+         // return -1; // 返回负值会停止 ring_buffer__poll
+         strcpy(ts, "error"); // 或提供一个错误指示符
+    } else {
+         strftime(ts, sizeof(ts), "%H:%M:%S", tm_info);
+    }
+
+
+    // 打印事件信息
+    printf("%-8s %-7d %-16s %s\n", ts, e->pid, e->comm, e->text);
+
+    return 0; // 返回 0 表示成功处理事件
+}
+
+
+int main(int argc, char **argv) {
+    struct ring_buffer *rb = NULL;
+    struct ollamabin_bpf *skel = NULL;
+
+    int err;
+    LIBBPF_OPTS(bpf_uprobe_opts, uprobe_opts);
+
+    err = argp_parse(&argp, argc, argv, 0, NULL, NULL);
+    if (err) return err;
+
+    libbpf_set_print(libbpf_print_fn);
+    signal(SIGINT, sig_handler);
+    signal(SIGTERM, sig_handler);
+
+    skel = ollamabin_bpf__open();
+    if (!skel) {
+        fprintf(stderr, "Failed to open BPF skeleton\n");
+        return 1;
+    }
+
+    // 设置 BPF 程序中的过滤参数 (rodata)
+    skel->rodata->filter_pid = env.pid;
+    strncpy((char *)skel->rodata->filter_comm, env.filter_comm, TASK_COMM_LEN);
+    skel->rodata->filter_comm[TASK_COMM_LEN - 1] = '\0';
+
+    err = ollamabin_bpf__load(skel);
+    if (err) {
+        fprintf(stderr, "Failed to load BPF skeleton: %s\n", strerror(-err));
+        goto cleanup;
+    }
+
+    uprobe_opts.func_name = TARGET_FUNC_NAME;  // 函数名称要和二进制文件中的符号名称一致
+    uprobe_opts.retprobe = false;     // 这是入口探针, 如果是返回探针, 则设置为 true
+    // uprobe_llamaLog 这个要和 bpf 程序中的名称完全一致
+    skel->links.uprobe_llamaLog = bpf_program__attach_uprobe_opts(
+                                      skel->progs.uprobe_llamaLog,
+                                      -1,                  // Attach globally, filter in BPF
+                                      env.target_path,     // Dynamic target path
+                                      0,                   // Offset 0 for function entry
+                                      &uprobe_opts);       // Options with func_name
+
+    if (!skel->links.uprobe_llamaLog) {
+		err = -errno;
+		fprintf(stderr, "Failed to attach uprobe: %d\n", err);
+		goto cleanup;
+	}
+
+    printf("Successfully attached uprobe to %s:%s\n", env.target_path, TARGET_FUNC_NAME);
+
+    // --- 设置 Ring Buffer ---
+    rb = ring_buffer__new(bpf_map__fd(skel->maps.rb), handle_event, NULL, NULL);
+    if (!rb) {
+        err = -errno;
+        fprintf(stderr, "Failed to create ring buffer: %s\n", strerror(-err));
+        goto cleanup;
+    }
+
+    // --- 事件轮询循环 ---
+    printf("Monitoring Ollama logs (Press Ctrl+C to exit)...\n");
+    printf("%-8s %-7s %-16s %s\n", "TIME", "PID", "COMM", "LOG_TEXT");
+    while (!exiting) {
+        err = ring_buffer__poll(rb, 100 /* timeout, ms */);
+        if (err == -EINTR) {
+            err = 0;
+            break;
+        }
+        if (err < 0) {
+            fprintf(stderr, "Error polling ring buffer: %s\n", strerror(-err));
+            break;
+        }
+    }
+
+cleanup:
+    // 清理资源
+    printf("\nDetaching probes and cleaning up...\n");
+    ring_buffer__free(rb);
+
+    // *** ollamabin_bpf__destroy 会自动处理 skel->links 中的链接 ***
+    ollamabin_bpf__destroy(skel);
+
+    printf("Exited.\n");
+    return err < 0 ? -err : 0;
+}
+```
+
+
+
+接下来, 请把以下 bpftrace 代码转化为 libbpf 代码.
+
+

@@ -1,0 +1,91 @@
+#! sudo bpftrace
+
+
+// cudaError_t cudaMalloc	(	void ** 	devPtr,size_t 	size	 )	
+uprobe:/opt/cuda/targets/x86_64-linux/lib/libcudart.so:cudaMalloc
+{
+    $ptr = arg0;
+    $size = arg1;
+    @cudamalloc_pdevp[pid] = $ptr;
+    printf("%d %s cudaMalloc %d\n", pid, comm, $size);
+}
+
+uretprobe:/opt/cuda/targets/x86_64-linux/lib/libcudart.so:cudaMalloc
+{
+    if (retval) {
+        printf("%d %s cudaMalloc failed\n", pid, comm);
+        return;
+    }
+
+    $pdevp = @cudamalloc_pdevp[pid];
+    printf("%d %s cudaMalloc %p\n", pid, comm, *(void**)($pdevp));
+}
+
+// cudaError_t cudaFree (void *devPtr)
+uprobe:/opt/cuda/targets/x86_64-linux/lib/libcudart.so:cudaFree
+{
+    $ptr = arg0;
+    printf("%d %s cudaFree %p\n", pid, comm, $ptr);
+}
+
+
+
+
+// cudaError_t cudaLaunchKernel (void *func, dim3 grid, dim3 block, void **args, size_t sharedMem, void *stream)
+uprobe:/opt/cuda/targets/x86_64-linux/lib/libcudart.so:cudaLaunchKernel
+{
+    $func = arg0;
+    $sharedMem = arg4;
+
+    printf("%d %s cudaLaunchKernel %p with shared memory %d\n", pid, comm, $func, $sharedMem);
+}
+
+// cudaError_t cudaMemcpy (void *dst, const void *src, size_t size, enum cudaMemcpyKind kind)
+/*
+enum cudaMemcpyKind
+cudaMemcpyHostToHost = 0
+cudaMemcpyHostToDevice = 1
+cudaMemcpyDeviceToHost = 2
+cudaMemcpyDeviceToDevice = 3
+cudaMemcpyDefault = 4
+*/
+uprobe:/opt/cuda/targets/x86_64-linux/lib/libcudart.so:cudaMemcpy
+{
+    $dst = arg0;
+    $src = arg1;
+    $size = arg2;
+    $kind = arg3;
+    if ($kind == 0) {
+        printf("%d %s cudaMemcpyHostToHost %p -> %p %d\n", pid, comm, $src, $dst, $size);
+    } else if ($kind == 1) {
+        printf("%d %s cudaMemcpyHostToDevice %p -> %p %d\n", pid, comm, $src, $dst, $size);
+    } else if ($kind == 2) {
+        printf("%d %s cudaMemcpyDeviceToHost %p -> %p %d\n", pid, comm, $src, $dst, $size);
+    } else if ($kind == 3) {
+        printf("%d %s cudaMemcpyDeviceToDevice %p -> %p %d\n", pid, comm, $src, $dst, $size);
+    } else if ($kind == 4) {
+        printf("%d %s cudaMemcpyDefault %p -> %p %d\n", pid, comm, $src, $dst, $size);
+    }
+}
+
+
+// cudaError_t cudaDeviceSynchronize()
+uprobe:/opt/cuda/targets/x86_64-linux/lib/libcudart.so:cudaDeviceSynchronize
+{
+    @callcudaDeviceSynchronize[pid] = nsecs;
+    printf("%d %s call cudaDeviceSynchronize at %u\n", pid, comm, nsecs);
+}
+
+uretprobe:/opt/cuda/targets/x86_64-linux/lib/libcudart.so:cudaDeviceSynchronize
+{
+    $calltime = @callcudaDeviceSynchronize[pid];
+    $cost = nsecs - $calltime;
+    printf("%d %s cudaDeviceSynchronize returns cost %u ns\n", pid, comm, $cost);
+}
+
+
+END
+{
+    clear(@cudamalloc_pdevp);
+    clear(@callcudaDeviceSynchronize);
+}

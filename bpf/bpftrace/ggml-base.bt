@@ -1,0 +1,38 @@
+#! sudo bpftrace
+
+
+/*
+libggml-base.so:
+uprobe:/usr/lib/ollama/libggml-base.so:ggml_aligned_malloc
+uprobe:/usr/lib/ollama/libggml-base.so:ggml_aligned_free
+
+这是底层的 CPU 内存分配和释放。虽然 GPU 内存通常更关键，但监控 CPU 内存分配有助于了解整体资源使用情况，特别是在模型加载或 CPU / GPU 混合执行的场景下。
+*/
+
+//void * ggml_aligned_malloc(size_t size)
+uprobe:/usr/lib/ollama/libggml-base.so:ggml_aligned_malloc
+{
+    $size = arg0;
+    // printf("%d %s ggml_aligned_malloc %d\n", pid, comm, $size);
+    @ggml_aligned_malloc_size[pid] = $size;
+}
+
+uretprobe:/usr/lib/ollama/libggml-base.so:ggml_aligned_malloc
+{
+    if (retval == 0){
+        return;
+    }
+    $size = @ggml_aligned_malloc_size[pid];
+    printf("%d %s ggml_aligned_malloc %d at %p\n", pid, comm, $size, retval);
+}
+
+
+// void ggml_aligned_free(void * ptr, size_t size) {
+uprobe:/usr/lib/ollama/libggml-base.so:ggml_aligned_free
+{
+    $ptr = arg0;
+    $size = arg1;
+    printf("%d %s ggml_aligned_free %d at %p\n", pid, comm, $size, $ptr);
+}
+
+
