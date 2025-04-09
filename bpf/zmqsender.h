@@ -8,8 +8,9 @@
 #include <stdio.h>   // For standard I/O (printf, perror, fprintf, stderr)
 #include <stdlib.h>  // For general utilities (malloc, free)
 #include <string.h>  // For string operations (strnlen, memcpy)
-#include <zmq.h>     // ZeroMQ library
-
+#include <sys/stat.h>
+#include <unistd.h>
+#include <zmq.h> // ZeroMQ library
 // --- 类型定义 ---
 
 // 用于打包用户特定数据的函数指针类型
@@ -179,11 +180,20 @@ static inline zmq_pub_handle_t *zmq_pub_init(const char *endpoint) {
 
     printf("INFO: ZMQ Publisher initialized and bound to %s\n",
            handle->endpoint);
-    printf("INFO: Publisher configured to MessagePack-encode the topic string "
-           "(Optimization: Reusable topic buffer).\n");
-    printf("WARNING: Standard ZMQ subscription filtering based on raw topic "
-           "strings will NOT work.\n");
 
+    // --- 新增：修改 IPC Socket 权限 ---
+    if (strncmp(endpoint, "ipc://", 6) == 0) {
+        const char *socket_path = endpoint + 6; // 跳过 "ipc://"
+        // 修改文件权限为 0666 (所有者读写，组读写，其他人读写)
+        if (chmod(socket_path, 0666) == -1) {
+            perror(
+                "WARN: Failed to change permissions of the IPC socket to 0666");
+            // 在这种情况下，Go 程序很可能无法连接
+        } else {
+            printf(
+                "INFO: Set IPC socket permissions to world-writable (0666)\n");
+        }
+    }
     return handle;
 }
 
@@ -205,8 +215,7 @@ static inline int zmq_pub_send(zmq_pub_handle_t *handle, const char *topic,
                         "topic, data, or packer function is NULL)\n");
         return -1;
     }
-    if (!handle->socket || !handle->payload_sbuf.data ||
-        !handle->topic_sbuf.data) {
+    if (!handle->socket || !handle->payload_pk.data || !handle->topic_pk.data) {
         fprintf(stderr, "ERROR: zmq_pub_send: Invalid handle state (socket or "
                         "buffers not initialized)\n");
         return -1;
@@ -246,33 +255,27 @@ static inline int zmq_pub_send(zmq_pub_handle_t *handle, const char *topic,
 static inline void zmq_pub_cleanup(zmq_pub_handle_t **handle_ptr) {
     if (handle_ptr && *handle_ptr) {
         zmq_pub_handle_t *handle = *handle_ptr;
-        printf("INFO: Cleaning up ZMQ Publisher for endpoint %s...\n",
-               handle->endpoint);
 
         // 销毁 msgpack *负载* 缓冲区
         if (handle->payload_sbuf.data) {
-            printf("INFO: Destroying msgpack payload sbuffer...\n");
             msgpack_sbuffer_destroy(&handle->payload_sbuf);
             handle->payload_sbuf.data = NULL;
         }
 
         // 销毁 msgpack *主题* 缓冲区 (优化点)
         if (handle->topic_sbuf.data) {
-            printf("INFO: Destroying msgpack topic sbuffer...\n");
             msgpack_sbuffer_destroy(&handle->topic_sbuf);
             handle->topic_sbuf.data = NULL;
         }
 
         // 关闭 ZMQ 套接字
         if (handle->socket) {
-            printf("INFO: Closing publisher socket...\n");
             zmq_close(handle->socket);
             handle->socket = NULL;
         }
 
         // 销毁 ZMQ 上下文
         if (handle->context) {
-            printf("INFO: Destroying ZeroMQ context...\n");
             zmq_ctx_destroy(handle->context);
             handle->context = NULL;
         }
@@ -280,10 +283,6 @@ static inline void zmq_pub_cleanup(zmq_pub_handle_t **handle_ptr) {
         // 释放句柄结构体内存
         free(handle);
         *handle_ptr = NULL;
-
-        printf("INFO: ZMQ Publisher cleanup complete.\n");
-    } else {
-        printf("INFO: zmq_pub_cleanup: Handle is already NULL or invalid.\n");
     }
 }
 

@@ -1,6 +1,5 @@
 #pragma once
 
-#include <cstdint>
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
@@ -34,5 +33,3 @@ static inline int64_t UnixMilliNow() {
     }
     return (int64_t)ts.tv_sec * 1000 + (int64_t)ts.tv_nsec / 1000000;
 }
-
-static inline int64_t UnixNow() { return UnixNanoNow(); }

@@ -75,6 +75,16 @@ int BPF_PROG(handle_do_filp_open, int dfd, struct filename *pathname,
         return 0;
     }
 
+    // comm ignore List: Xwayland , kwin_* , 
+
+    if (bpf_strncmp(comm, 7, "Xwayland") == 0) {
+        return 0;
+    }
+    if (bpf_strncmp(comm, 5, "kwin_") == 0) {
+        return 0;
+    }
+
+
     // 3. 尝试从 pathname 参数读取文件名
     // struct filename 包含一个指向实际路径字符串的指针 'name'
     const char *fname_ptr;
@@ -119,6 +129,12 @@ int BPF_PROG(handle_do_filp_open, int dfd, struct filename *pathname,
         // 确保 null 结尾 (bpf_probe_read_kernel_str
         // 在成功时会保证，但多一层保险)
         e->filename[MAX_PATH_LEN - 1] = '\0';
+    }
+
+    //  忽略 /proc*
+    if (bpf_strncmp(e->filename, 5, "/proc") == 0) {
+        bpf_ringbuf_discard(e, 0);
+        return 0;
     }
 
     // 6. 提交事件到 Ring Buffer

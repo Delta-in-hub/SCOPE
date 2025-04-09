@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"log"
+	"scope/internal/models"
+	"scope/internal/platform"
 	"sync" // Import sync package for WaitGroup
 	"syscall"
 	"time"
@@ -12,165 +14,128 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 )
 
-// --- Struct definitions (identical to before) ---
-type CommandPayload struct {
-	CommandID    int32
-	TargetDevice string
-	Parameter    float64
-}
-
-type StatusUpdatePayload struct {
-	SourceID   int32
-	StatusCode string
-	Details    string
-}
-
-const (
-	MsgTypeCommand = "CMD"
-	MsgTypeStatus  = "STAT"
-)
-
-// --- End Struct definitions ---
-
 // --- Struct to pass raw messages between goroutines ---
 type RawMessage struct {
-	Topic   []byte
-	Payload []byte
+	Topic   []byte // Received raw topic bytes (might be msgpack encoded)
+	Payload []byte // Received raw payload bytes
 }
 
-// --- Receiver Goroutine ---
 // Reads from ZMQ socket and sends raw messages to the channel.
 func receiver(subscriber *zmq.Socket, msgChan chan<- RawMessage, wg *sync.WaitGroup) {
-	defer wg.Done()      // Signal WaitGroup when this goroutine exits
-	defer close(msgChan) // Close the channel when receiver exits to signal processor
+	defer wg.Done()
+	defer close(msgChan)
 
 	fmt.Println("Receiver goroutine started.")
 
-	// Poller Setup within the goroutine
 	poller := zmq.NewPoller()
 	poller.Add(subscriber, zmq.POLLIN)
 
 	running := true
 	for running {
-		// Poll the sockets with a timeout
-		// Using a timeout allows checking for context termination implicitly via ETERM error
-		polledSockets, err := poller.Poll(250 * time.Millisecond) // Poll longer, less busy-wait
+		polledSockets, err := poller.Poll(250 * time.Millisecond)
 		if err != nil {
-			if zmq.AsErrno(err) == zmq.ETERM {
+			errno := zmq.AsErrno(err)
+			if errno == zmq.ETERM {
 				fmt.Println("Receiver: Context terminated during poll, exiting.")
-				running = false // Exit loop cleanly
+				running = false
 				continue
 			}
-			if zmq.AsErrno(err) == zmq.Errno(syscall.EINTR) {
+			if errno == zmq.Errno(syscall.EINTR) {
 				fmt.Println("Receiver: Poll interrupted, continuing...")
-				continue // Interrupted by signal, loop again
+				continue
 			}
-			// Log other polling errors but try to continue
-			log.Printf("Receiver: Error polling socket: %v (errno %d)", err, zmq.AsErrno(err))
-			// Maybe add a small delay here if errors persist
+			log.Printf("Receiver: Error polling socket: %v (errno %d)", err, errno)
 			time.Sleep(500 * time.Millisecond)
 			continue
 		}
 
-		// If Poll returned any ready sockets
 		if len(polledSockets) > 0 {
-			// Receive message parts (Topic + Payload)
-			msgParts, err := subscriber.RecvMessageBytes(0) // Blocking receive is fine after successful poll
+			msgParts, err := subscriber.RecvMessageBytes(0)
 			if err != nil {
 				if zmq.AsErrno(err) == zmq.ETERM {
 					fmt.Println("Receiver: Context terminated during receive, exiting.")
-					running = false // Exit loop cleanly
+					running = false
 					continue
 				}
-				// Handle other potential receive errors
 				log.Printf("Receiver: Error receiving message: %v", err)
-				continue // Skip this message and try again
+				continue
 			}
 
-			// Validate message structure
 			if len(msgParts) != 2 {
-				log.Printf("Receiver: Error: Received message with %d parts, expected 2 (Topic, Payload)", len(msgParts))
-				continue // Skip malformed message
+				log.Printf("Receiver: Error: Received message with %d parts, expected 2 (EncodedTopic, Payload)", len(msgParts))
+				continue
 			}
 
-			// Create RawMessage and send it on the channel
-			// This might block if the channel buffer is full
 			msg := RawMessage{
 				Topic:   msgParts[0],
 				Payload: msgParts[1],
 			}
-			// Use a select with a timeout or default case if you want to prevent
-			// the receiver from blocking indefinitely if the processor is stuck.
-			// For simplicity now, we assume the processor keeps up or the buffer handles bursts.
-			select {
-			case msgChan <- msg:
-				// Message successfully sent
-				// Example of non-blocking send (might drop messages if processor is slow):
-				// default:
-				//  log.Println("Receiver: Warning - Processor channel full, dropping message.")
-			}
-		} // End if len(polledSockets) > 0
-	} // End for running
+
+			msgChan <- msg
+		}
+	}
 
 	fmt.Println("Receiver goroutine finished.")
 }
 
-// --- Processor Goroutine ---
-// Reads raw messages from the channel, unmarshals, and prints.
+// --- Processor Goroutine (Handles Different Message Types, including Array) ---
+// Reads raw messages, unmarshals topic and payload, and processes.
 func processor(msgChan <-chan RawMessage, wg *sync.WaitGroup) {
-	defer wg.Done() // Signal WaitGroup when this goroutine exits
+	defer wg.Done()
 	fmt.Println("Processor goroutine started.")
 
-	// Loop reading from the channel. The loop automatically exits when msgChan is closed.
 	for rawMsg := range msgChan {
-		topic := string(rawMsg.Topic)
 		payloadBytes := rawMsg.Payload
+
+		// --- Unmarshal the Topic first ---
+		// (Topic is still expected to be a msgpack encoded string)
+		var topic string
+		err := msgpack.Unmarshal(rawMsg.Topic, &topic)
+		if err != nil {
+			log.Printf("Processor: Error unmarshaling topic: %v (Raw Topic Bytes: %x)", err, rawMsg.Topic)
+			continue // Skip message with unparseable topic
+		}
+		// --- Topic successfully unmarshaled ---
 
 		// Use a switch to handle different topics
 		switch topic {
-		case MsgTypeCommand:
-			var cmd CommandPayload
-			err := msgpack.Unmarshal(payloadBytes, &cmd)
+		case "vfs_open":
+			// Use the untagged struct expecting an array format based on field order.
+			var event models.VfsOpenEvent
+			err := msgpack.Unmarshal(payloadBytes, &event)
 			if err != nil {
-				log.Printf("Processor: Error unmarshaling CommandPayload: %v", err)
-			} else {
-				// Print received command data
-				fmt.Printf("Processed [%s]: ID=%d, Target='%s', Param=%.2f\n",
-					topic, cmd.CommandID, cmd.TargetDevice, cmd.Parameter)
-				// TODO: Add actual command processing logic here
+				// If this error occurs often, double-check C packing order vs Go struct order
+				log.Printf("Processor: Error unmarshaling VfsOpenEvent (Array Format): %v", err)
+				continue
 			}
+			cmdline, _ := platform.GetCmdline(event.PID)
+			// Format timestamp for better readability
+			tsFormatted := time.Unix(0, event.TimestampNs).Format(time.RFC1123)
+			// Print received event data - access fields by name as usual
+			fmt.Printf("Processed [%s]: Time=%s, PID=%d, Comm='%s', Cmdline='%s', File='%s'\n",
+				topic, tsFormatted, event.PID, event.Comm, cmdline, event.Filename)
 
-		case MsgTypeStatus:
-			var stat StatusUpdatePayload
-			err := msgpack.Unmarshal(payloadBytes, &stat)
-			if err != nil {
-				log.Printf("Processor: Error unmarshaling StatusUpdatePayload: %v", err)
-			} else {
-				// Print received status data
-				fmt.Printf("Processed [%s]: SrcID=%d, Code='%s', Details='%.20s...'\n",
-					topic, stat.SourceID, stat.StatusCode, stat.Details)
-				// TODO: Add actual status processing logic here
-			}
+			tsnow := time.Now().UnixNano()
+			fmt.Printf("Cost %d ns in zmq\n", tsnow-event.TimestampNs)
 
 		default:
-			log.Printf("Processor: Error: Received message with unexpected topic '%s'", topic)
+			// Handle unexpected topics
+			log.Printf("Processor: Warning: Received message with unhandled topic '%s'", topic)
+			// log.Printf("Raw Payload for unhandled topic: %x", payloadBytes)
 		}
 	} // End for range msgChan
 
 	fmt.Println("Processor goroutine finished (channel closed).")
 }
 
-// --- Main Function ---
+// --- Main Function (Unchanged from previous version) ---
 func main() {
 	godotenv.Load(".env")
 
-	// ZMQ Context and Socket Setup (SUB)
 	context, err := zmq.NewContext()
 	if err != nil {
 		log.Fatalf("Error creating ZMQ context: %v", err)
 	}
-	// Use defer context.Term() to ensure it's called even on panic,
-	// but we will also call it explicitly during graceful shutdown.
 	defer context.Term()
 
 	subscriber, err := context.NewSocket(zmq.SUB)
@@ -180,39 +145,27 @@ func main() {
 	defer subscriber.Close()
 
 	ipcEndpoint := "ipc:///tmp/zmq_ipc_pubsub.sock"
-	fmt.Printf("Go Subscriber (Multi-Type Concurrent) connecting to %s\n", ipcEndpoint)
-
+	fmt.Printf("Go Subscriber (Array Format Capable) connecting to %s\n", ipcEndpoint)
 	err = subscriber.Connect(ipcEndpoint)
 	if err != nil {
-		log.Fatalf("Failed to connect: %v", err)
+		log.Fatalf("Failed to connect subscriber to '%s': %v", ipcEndpoint, err)
 	}
-	fmt.Println("Connection initiated.")
+	fmt.Println("Subscriber connected.")
 
-	// Subscribe to all topics ("" prefix)
-	err = subscriber.SetSubscribe("")
+	err = subscriber.SetSubscribe("") // Subscribe to all topics
 	if err != nil {
 		log.Fatalf("Error subscribing to topics: %v", err)
 	}
-	fmt.Println("Subscribed to all topics. Waiting for messages...")
 
-	// --- Channel for communication between goroutines ---
-	// Use a buffered channel to decouple receiver and processor slightly
-	// Adjust buffer size based on expected load and processing time
-	const channelBufferSize = 100
-	msgChan := make(chan RawMessage, channelBufferSize)
-
-	// --- WaitGroup for synchronizing goroutine shutdown ---
+	msgChan := make(chan RawMessage, 10240)
 	var wg sync.WaitGroup
 
-	// --- Start Goroutines ---
-	wg.Add(2) // Expect two goroutines to finish
+	wg.Add(2)
 	go receiver(subscriber, msgChan, &wg)
 	go processor(msgChan, &wg)
 
-	// Wait for all goroutines to finish.
-	fmt.Println("Waiting for goroutines to finish...")
+	fmt.Println("Main: Waiting for goroutines to finish...")
 	wg.Wait()
 
-	fmt.Println("All goroutines finished. Exiting.")
-	// Deferred subscriber.Close() and context.Term() will run here if not already called
+	fmt.Println("Main: All goroutines finished. Exiting.")
 }
