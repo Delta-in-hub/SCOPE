@@ -16,7 +16,7 @@ services:
     restart: unless-stopped
 
   redis:
-    image: redis:7.4.2 # 建议指定明确的版本
+    image: redis:7.4.2 # 建议指定明确的版本w
     container_name: scope-dev-redis
     ports:
       - "56379:6379" # 暴露 Redis 端口到宿主机

@@ -45,7 +45,7 @@
   - uprobe:/usr/lib/ollama/cuda_v12/libggml-cuda.so:ggml_cuda_cpy (TODO)
     - 这个函数负责在 GPU 内部或 Host（CPU内存）与 Device（GPU显存）之间复制数据。数据传输是常见的性能瓶颈之一。监控此函数可以了解数据传输的方向、大小和频率，有助于识别不必要的传输或优化传输策略。调用频率（4320 次）也相当高。
 
-  - uprobe:/usr/lib/ollama/libggml-base.so:ggml_aligned_malloc (TODO)
+  - uprobe:/usr/lib/ollama/libggml-base.so:ggml_aligned_malloc
     - 这是底层的 CPU 内存分配和释放。虽然 GPU 内存通常更关键，但监控 CPU 内存分配有助于了解整体资源使用情况，特别是在模型加载或 CPU / GPU 混合执行的场景下。
 
   - uprobe:/usr/lib/ollama/cuda_v12/libggml-cuda.so:ggml_cuda_set_device (TODO)

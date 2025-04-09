@@ -1,44 +1,24 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"runtime"
 	"scope/database/postgres"
 	"scope/database/redis"
 	"scope/internal/auth"
+	"scope/internal/backend"
 	"scope/internal/middleware"
-	"strconv"
+	"scope/internal/utils"
+	"sync"
 	"time"
 
 	"github.com/joho/godotenv"
 )
-
-// getEnvOrDefault 获取环境变量，如果不存在则返回默认值
-func getEnvOrDefault(key, defaultValue string) string {
-	value := os.Getenv(key)
-	if value == "" {
-		return defaultValue
-	}
-	return value
-}
-
-// getEnvAsIntOrDefault 获取环境变量并转换为整数，如果不存在或转换失败则返回默认值
-func getEnvAsIntOrDefault(key string, defaultValue int) int {
-	value := os.Getenv(key)
-	if value == "" {
-		return defaultValue
-	}
-
-	intValue, err := strconv.Atoi(value)
-	if err != nil {
-		return defaultValue
-	}
-
-	return intValue
-}
 
 func main() {
 	// 加载环境变量
@@ -71,12 +51,12 @@ func main() {
 
 	// 初始化PostgreSQL连接
 	dbConfig := postgres.Config{
-		Host:     getEnvOrDefault("DB_HOST", "localhost"),
-		Port:     getEnvAsIntOrDefault("DB_PORT", 5432),
-		User:     getEnvOrDefault("DB_USER", "postgres"),
-		Password: getEnvOrDefault("DB_PASSWORD", "postgres"),
-		DBName:   getEnvOrDefault("DB_NAME", "scope"),
-		SSLMode:  getEnvOrDefault("DB_SSLMODE", "disable"),
+		Host:     utils.GetEnvOrDefault("DB_HOST", "localhost"),
+		Port:     utils.GetEnvAsIntOrDefault("DB_PORT", 5432),
+		User:     utils.GetEnvOrDefault("DB_USER", "postgres"),
+		Password: utils.GetEnvOrDefault("DB_PASSWORD", "postgres"),
+		DBName:   utils.GetEnvOrDefault("DB_NAME", "scope"),
+		SSLMode:  utils.GetEnvOrDefault("DB_SSLMODE", "disable"),
 	}
 
 	db, err := postgres.NewDB(dbConfig)
@@ -92,9 +72,9 @@ func main() {
 
 	// 初始化Redis连接
 	redisConfig := redis.Config{
-		Addr:     getEnvOrDefault("REDIS_ADDR", "localhost:6379"),
-		Password: getEnvOrDefault("REDIS_PASSWORD", ""),
-		DB:       getEnvAsIntOrDefault("REDIS_DB", 0),
+		Addr:     utils.GetEnvOrDefault("REDIS_ADDR", "localhost:6379"),
+		Password: utils.GetEnvOrDefault("REDIS_PASSWORD", ""),
+		DB:       0,
 	}
 
 	redisClient, err := redis.NewClient(redisConfig)
@@ -124,5 +104,47 @@ func main() {
 	// 启动服务器
 	serverAddr := fmt.Sprintf(":%d", *port)
 	log.Printf("认证API服务启动在 http://localhost%s", serverAddr)
+
+	// 接收Redis Stream 来自 agent
+
+	timescaledb, err := postgres.NewDB(dbConfig)
+	if err != nil {
+		log.Fatalf("连接TimescaleDB失败: %v", err)
+	}
+	defer timescaledb.Close()
+
+	initCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := postgres.InitializeTSDBSchema(initCtx, timescaledb); err != nil {
+		log.Fatalf("初始化 TimescaleDB schema 失败: %v", err)
+	}
+
+	streamConfig := redis.Config{
+		Addr:     utils.GetEnvOrDefault("REDIS_ADDR", "localhost:6379"),
+		Password: utils.GetEnvOrDefault("REDIS_PASSWORD", ""),
+		DB:       1,
+	}
+
+	streamClient, err := redis.NewClient(streamConfig)
+	if err != nil {
+		log.Fatalf("连接Redis失败 For Stream: %v", err)
+	}
+	defer streamClient.Close()
+
+	var wg sync.WaitGroup
+	var cpunum = runtime.NumCPU() / 2
+	if cpunum < 1 {
+		cpunum = 1
+	}
+
+	verbose := flag.Bool("verbose", false, "是否启用详细输出")
+	flag.Parse()
+
+	for range cpunum {
+		wg.Add(1)
+		go backend.Receive(&wg, timescaledb, streamClient, *verbose)
+	}
+
 	log.Fatal(http.ListenAndServe(serverAddr, router))
+	wg.Wait()
 }
