@@ -15,6 +15,11 @@
 #include "execv.h" // Shared header
 #include "execv.skel.h" // Generated BPF skeleton header (assuming bpf file is execv.bpf.c)
 
+#include "../epoch.h" // 用于 UnixNanoNow()
+#include "../ipc_models.h"
+#include "../zmqsender.h" // 用于 ZMQ 和 MessagePack 发布
+const char *ENDPOINT = "ipc:///tmp/zmq_ipc_pubsub.sock";
+
 // Environment configuration struct to store command-line arguments
 static struct env {
     pid_t pid; // PID of the process whose execve calls we trace
@@ -104,25 +109,54 @@ static int handle_event(void *ctx, void *data, size_t data_sz) {
         return -1; // Stop processing if exiting
 
     const struct event *e = data;
-    struct tm *tm;
-    char ts[32];
-    time_t t;
 
-    // Get current timestamp
-    time(&t);
-    tm = localtime(&t);
-    strftime(ts, sizeof(ts), "%H:%M:%S", tm);
+    if (env.verbose) {
+        struct tm *tm;
+        char ts[32];
+        time_t t;
 
-    // Print event information
-    printf("%-8s %-7d %-7d %-20s", ts, e->pid, e->ppid, e->filename);
+        // Get current timestamp
+        time(&t);
+        tm = localtime(&t);
+        strftime(ts, sizeof(ts), "%H:%M:%S", tm);
 
+        // Print event information
+        printf("%-8s %-7d %-7d %-20s", ts, e->pid, e->ppid, e->filename);
+
+        for (int i = 0; i < MAX_ARGS_TO_READ; i++) {
+            const char *p = e->args + i * 8;
+            if (*p == '\0')
+                continue;
+            printf(" %s", p);
+        }
+        printf("\n");
+    }
+
+    struct execv_event event = {
+        .timestamp_ns = UnixNanoNow(),
+        .pid = e->pid,
+        .ppid = e->ppid,
+        .filename = "",
+        .args = "",
+    };
+    memset(event.args, ' ', sizeof(event.args));
+
+    strncpy(event.filename, e->filename, sizeof(event.filename));
+
+    uint32_t cur = 0;
     for (int i = 0; i < MAX_ARGS_TO_READ; i++) {
         const char *p = e->args + i * 8;
         if (*p == '\0')
             continue;
-        printf(" %s", p);
+        if (cur >= sizeof(event.args))
+            break;
+        strncpy(event.args + cur, p, sizeof(event.args) - cur);
+        cur += strlen(p) + 1;
     }
-    printf("\n");
+    event.args[sizeof(event.args) - 1] = '\0';
+
+    zmq_pub_send(ctx, "execv", &event, execv_event_pack);
+
     return 0; // Success
 }
 
@@ -143,6 +177,12 @@ int main(int argc, char **argv) {
     // Set up signal handler for graceful exit
     signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
+
+    zmq_pub_handle_t *zmq_handle = zmq_pub_init(ENDPOINT);
+    if (!zmq_handle) {
+        fprintf(stderr, "Failed to initialize ZMQ publisher\n");
+        return 1;
+    }
 
     // 1. Open BPF skeleton file
     skel =
@@ -176,7 +216,8 @@ int main(int argc, char **argv) {
     // 5. Create Ring Buffer
     //    - bpf_map__fd(skel->maps.rb): Get the file descriptor for the 'rb' map
     //    - handle_event: Specify the event handler callback
-    rb = ring_buffer__new(bpf_map__fd(skel->maps.rb), handle_event, NULL, NULL);
+    rb = ring_buffer__new(bpf_map__fd(skel->maps.rb), handle_event, zmq_handle,
+                          NULL);
     if (!rb) {
         err = -errno; // ring_buffer__new usually returns NULL on failure, check
                       // errno
@@ -228,6 +269,6 @@ cleanup:
     fprintf(stderr, "\nExiting...\n");
     ring_buffer__free(rb);    // Free Ring Buffer
     execv_bpf__destroy(skel); // Destroy BPF skeleton (detaches and unloads)
-
+    zmq_pub_cleanup(&zmq_handle);
     return err < 0 ? -err : 0; // Return error code
 }

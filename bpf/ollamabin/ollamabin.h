@@ -1,7 +1,7 @@
 #pragma once
 
 #define TASK_COMM_LEN 16
-#define TEXT_LEN 140
+#define TEXT_LEN 256
 #define MAX_ENTRIES	10240
 
 

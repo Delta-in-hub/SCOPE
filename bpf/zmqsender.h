@@ -156,15 +156,16 @@ static inline zmq_pub_handle_t *zmq_pub_init(const char *endpoint) {
     }
 
     // 绑定套接字
-    int rc = zmq_bind(handle->socket, endpoint);
+    int rc = zmq_connect(handle->socket, endpoint);
     if (rc != 0) {
-        fprintf(stderr, "ERROR: zmq_pub_init: zmq_bind to '%s' failed: %s\n",
+        fprintf(stderr, "ERROR: zmq_pub_init: zmq_connect to '%s' failed: %s\n",
                 endpoint, zmq_strerror(errno));
         zmq_close(handle->socket);
         zmq_ctx_destroy(handle->context);
         free(handle);
         return NULL;
     }
+
     strncpy(handle->endpoint, endpoint, sizeof(handle->endpoint) - 1);
     handle->endpoint[sizeof(handle->endpoint) - 1] = '\0';
 
@@ -181,19 +182,6 @@ static inline zmq_pub_handle_t *zmq_pub_init(const char *endpoint) {
     printf("INFO: ZMQ Publisher initialized and bound to %s\n",
            handle->endpoint);
 
-    // --- 新增：修改 IPC Socket 权限 ---
-    if (strncmp(endpoint, "ipc://", 6) == 0) {
-        const char *socket_path = endpoint + 6; // 跳过 "ipc://"
-        // 修改文件权限为 0666 (所有者读写，组读写，其他人读写)
-        if (chmod(socket_path, 0666) == -1) {
-            perror(
-                "WARN: Failed to change permissions of the IPC socket to 0666");
-            // 在这种情况下，Go 程序很可能无法连接
-        } else {
-            printf(
-                "INFO: Set IPC socket permissions to world-writable (0666)\n");
-        }
-    }
     return handle;
 }
 

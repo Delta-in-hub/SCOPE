@@ -1,6 +1,3 @@
 {
     "makefile.configureOnOpen": true,
-    "clangd.arguments": [
-        "-I/home/delta/workspace/ebpf-golang/bpf"
-    ]
 }

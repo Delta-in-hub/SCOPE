@@ -6,7 +6,7 @@
 
 // 定义事件类型
 enum event_type {
-    EVENT_MALLOC,
+    EVENT_MALLOC = 0,
     EVENT_FREE,
 };
 

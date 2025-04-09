@@ -13,6 +13,12 @@
 #include "sched.h"
 #include "sched.skel.h"
 
+#include "../epoch.h" // 用于 UnixNanoNow()
+#include "../ipc_models.h"
+#include "../zmqsender.h" // 用于 ZMQ 和 MessagePack 发布
+
+const char *ENDPOINT = "ipc:///tmp/zmq_ipc_pubsub.sock";
+
 static struct env {
     pid_t pid;
     char parent_comm[TASK_COMM_LEN];
@@ -89,15 +95,35 @@ static int handle_event(void *ctx, void *data, size_t data_sz) {
         return -1;
 
     const struct event *e = data;
-    char ts[32];
-    time_t t = time(NULL);
-    strftime(ts, sizeof(ts), "%H:%M:%S", localtime(&t));
 
-    if (e->type == SWITCH_IN) {
-        printf("%-8s %-7d %-7d %-20s %s CPU(%d)\n", ts, e->cpu, e->pid, e->comm, "Sched IN", e->cpu);
-    } else {
-        printf("%-8s %-7d %-7d %-20s %s CPU(%d)\n", ts, e->cpu, e->pid, e->comm, "Sched OUT", e->cpu);
+    if (e->pid == getpid())
+        return 0;
+
+    if (env.verbose) {
+        char ts[32];
+        time_t t = time(NULL);
+        strftime(ts, sizeof(ts), "%H:%M:%S", localtime(&t));
+
+        if (e->type == SWITCH_IN) {
+            printf("%-8s %-7d %-7d %-20s %s CPU(%d)\n", ts, e->cpu, e->pid,
+                   e->comm, "Sched IN", e->cpu);
+        } else {
+            printf("%-8s %-7d %-7d %-20s %s CPU(%d)\n", ts, e->cpu, e->pid,
+                   e->comm, "Sched OUT", e->cpu);
+        }
     }
+
+    zmq_pub_handle_t *zmq_handle = (zmq_pub_handle_t *)ctx;
+    struct sched_event pub_event = {
+        .timestamp_ns = UnixNanoNow(),
+        .pid = e->pid,
+        .comm = "",
+        .cpu = e->cpu,
+        .type = e->type,
+    };
+    strncpy(pub_event.comm, e->comm, sizeof(pub_event.comm));
+
+    zmq_pub_send(zmq_handle, "sched", &pub_event, sched_event_pack);
 
     return 0;
 }
@@ -114,6 +140,14 @@ int main(int argc, char **argv) {
     libbpf_set_print(libbpf_print_fn);
     signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
+
+    zmq_pub_handle_t *zmq_handle = zmq_pub_init(ENDPOINT);
+    if (!zmq_handle) {
+        fprintf(stderr, "Failed to initialize ZeroMQ publisher on %s\n",
+                ENDPOINT);
+        return 1;
+    }
+    printf("INFO: Publishing sched events to ZMQ endpoint: %s\n", ENDPOINT);
 
     skel = sched_bpf__open();
     if (!skel) {
@@ -136,7 +170,8 @@ int main(int argc, char **argv) {
         goto cleanup;
     }
 
-    rb = ring_buffer__new(bpf_map__fd(skel->maps.rb), handle_event, NULL, NULL);
+    rb = ring_buffer__new(bpf_map__fd(skel->maps.rb), handle_event, zmq_handle,
+                          NULL);
     if (!rb) {
         err = -errno;
         fprintf(stderr, "Failed to create ring buffer: %s\n", strerror(-err));
@@ -156,5 +191,6 @@ int main(int argc, char **argv) {
 cleanup:
     ring_buffer__free(rb);
     sched_bpf__destroy(skel);
+    zmq_pub_cleanup(&zmq_handle);
     return err ? -err : 0;
 }

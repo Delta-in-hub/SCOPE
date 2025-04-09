@@ -15,6 +15,12 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "../epoch.h" // 用于 UnixNanoNow()
+#include "../ipc_models.h"
+#include "../zmqsender.h" // 用于 ZMQ 和 MessagePack 发布
+
+const char *ENDPOINT = "ipc:///tmp/zmq_ipc_pubsub.sock";
+
 // 环境配置结构体，用于存储命令行参数
 static struct env {
     pid_t pid;
@@ -101,18 +107,35 @@ static int handle_event(void *ctx, void *data, size_t data_sz) {
         return -1;
 
     const struct event *e = data;
-    struct tm *tm;
-    char ts[32];
-    time_t t;
 
-    // 获取当前时间戳
-    time(&t);
-    tm = localtime(&t);
-    strftime(ts, sizeof(ts), "%H:%M:%S", tm);
+    if (e->pid == getpid())
+        return 0;
+
     char name[32];
     syscall_name(e->syscallid, name, sizeof(name));
-    // 打印事件信息
-    printf("%-8s %-16s %-7d %-5s\n", ts, e->comm, e->pid, name);
+    if (env.verbose) {
+        struct tm *tm;
+        char ts[32];
+        time_t t;
+        // 获取当前时间戳
+        time(&t);
+        tm = localtime(&t);
+        strftime(ts, sizeof(ts), "%H:%M:%S", tm);
+        // 打印事件信息
+        printf("%-8s %-16s %-7d %-5s\n", ts, e->comm, e->pid, name);
+    }
+
+    struct syscalls_event pub_event = {
+        .timestamp_ns = UnixNanoNow(),
+        .pid = e->pid,
+        .comm = "",
+        .syscall_name = "",
+    };
+    strncpy(pub_event.comm, e->comm, sizeof(pub_event.comm));
+    strncpy(pub_event.syscall_name, name, sizeof(pub_event.syscall_name));
+
+    zmq_pub_handle_t *handler = (zmq_pub_handle_t *)ctx;
+    zmq_pub_send(handler, "syscalls", &pub_event, syscalls_event_pack);
 
     return 0;
 }
@@ -133,6 +156,14 @@ int main(int argc, char **argv) {
     // 设置信号处理函数，用于优雅退出
     signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
+
+    zmq_pub_handle_t *zmq_handle = zmq_pub_init(ENDPOINT);
+    if (!zmq_handle) {
+        fprintf(stderr, "Failed to initialize ZeroMQ publisher on %s\n",
+                ENDPOINT);
+        return 1;
+    }
+    printf("INFO: Publishing syscalls events to ZMQ endpoint: %s\n", ENDPOINT);
 
     init_syscall_names();
 
@@ -166,7 +197,8 @@ int main(int argc, char **argv) {
     // 5. 创建 Ring Buffer
     //    - bpf_map__fd(skel->maps.rb): 获取 'rb' map 的文件描述符
     //    - handle_event: 指定事件处理回调函数
-    rb = ring_buffer__new(bpf_map__fd(skel->maps.rb), handle_event, NULL, NULL);
+    rb = ring_buffer__new(bpf_map__fd(skel->maps.rb), handle_event, zmq_handle,
+                          NULL);
     if (!rb) {
         err = -errno; // ring_buffer__new 在失败时通常不设置 errno，但返回 NULL
         if (err == 0)
@@ -177,8 +209,9 @@ int main(int argc, char **argv) {
     }
 
     // 打印表头
-    printf("%-8s %-16s %-7s %-5s\n", "TIME", "COMM", "PID", "SYSCALL_ID");
-
+    if (env.verbose) {
+        printf("%-8s %-16s %-7s %-5s\n", "TIME", "COMM", "PID", "SYSCALL_ID");
+    }
     // 6. 轮询 Ring Buffer 获取事件
     while (!exiting) {
         // ring_buffer__poll() 会调用 handle_event 处理收到的事件
@@ -204,5 +237,6 @@ cleanup:
     ring_buffer__free(rb);       // 释放 Ring Buffer
     syscalls_bpf__destroy(skel); // 销毁 BPF 骨架 (会自动分离程序并卸载)
     free_syscall_names();
-    return err < 0 ? -err : 0; // 返回错误码
+    zmq_pub_cleanup(&zmq_handle); // 清理 ZMQ 资源
+    return err < 0 ? -err : 0;    // 返回错误码
 }

@@ -33,13 +33,14 @@ struct syscall_trace_enter {
 SEC("tracepoint/syscalls/sys_enter_execve")
 int tracepoint__syscalls__sys_enter_execve(struct syscall_trace_enter *ctx) {
     pid_t pid = bpf_get_current_pid_tgid() >> 32;
-    if (filter_pid && pid != filter_pid)
-        return 0;
 
     struct task_struct *task = (struct task_struct *)bpf_get_current_task();
     struct task_struct *parent_task =
         (struct task_struct *)BPF_CORE_READ(task, real_parent);
     pid_t ppid = (pid_t)BPF_CORE_READ(parent_task, tgid);
+
+    if (filter_pid && (pid != filter_pid || ppid != filter_pid))
+        return 0;
 
     char comm[TASK_COMM_LEN];
     // get ppid's comm
