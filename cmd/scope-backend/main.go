@@ -27,6 +27,7 @@ func main() {
 	}
 	// 命令行参数
 	port := flag.Int("port", 18080, "API服务端口")
+	verbose := flag.Bool("verbose", false, "是否启用详细输出")
 	flag.Parse()
 
 	// 从环境变量获取密钥
@@ -137,13 +138,13 @@ func main() {
 		cpunum = 1
 	}
 
-	verbose := flag.Bool("verbose", false, "是否启用详细输出")
-	flag.Parse()
-
-	for range cpunum {
+	for k := range cpunum {
 		wg.Add(1)
-		go backend.Receive(&wg, timescaledb, streamClient, *verbose)
+		go backend.Receive(context.Background(), &wg, timescaledb, streamClient, *verbose, k)
 	}
+
+	wg.Add(1)
+	go backend.XDelMessages(context.Background(), streamClient, *verbose)
 
 	log.Fatal(http.ListenAndServe(serverAddr, router))
 	wg.Wait()

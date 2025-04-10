@@ -557,10 +557,9 @@ func Processor(msgChan <-chan RawMessage, wg *sync.WaitGroup, config Config, red
 			continue
 		}
 
-		// Add to Redis Stream with optimized performance
 		_, err = redisClient.XAdd(ctx, &goredis.XAddArgs{
 			Stream: config.StreamKey,
-			Values: string(eventJson),
+			Values: map[string]interface{}{"data": string(eventJson)},
 		}).Result()
 
 		if err != nil {
