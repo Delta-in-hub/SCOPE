@@ -1,0 +1,81 @@
+<template>
+  <el-menu
+    :default-active="activeRoute"
+    class="sidebar-menu"
+    :collapse="isCollapse"
+    background-color="#001529"
+    text-color="#fff"
+    active-text-color="#1890ff"
+    router
+  >
+    <div class="sidebar-logo" @click="toggleCollapse">
+      <el-icon v-if="isCollapse"><Expand /></el-icon>
+      <el-icon v-else><Fold /></el-icon>
+    </div>
+    
+    <el-menu-item index="/nodes">
+      <el-icon><Monitor /></el-icon>
+      <template #title>节点管理</template>
+    </el-menu-item>
+    
+    <el-sub-menu index="system">
+      <template #title>
+        <el-icon><Setting /></el-icon>
+        <span>系统管理</span>
+      </template>
+      <el-menu-item index="/system/users">
+        <el-icon><User /></el-icon>
+        <span>用户管理</span>
+      </el-menu-item>
+      <el-menu-item index="/system/settings">
+        <el-icon><Tools /></el-icon>
+        <span>系统设置</span>
+      </el-menu-item>
+    </el-sub-menu>
+  </el-menu>
+</template>
+
+<script setup>
+import { ref, computed } from 'vue';
+import { useRoute } from 'vue-router';
+
+const route = useRoute();
+const isCollapse = ref(false);
+
+const activeRoute = computed(() => {
+  return route.path;
+});
+
+const toggleCollapse = () => {
+  isCollapse.value = !isCollapse.value;
+};
+</script>
+
+<style scoped>
+.sidebar-menu {
+  height: 100%;
+  border-right: none;
+}
+
+.sidebar-menu:not(.el-menu--collapse) {
+  width: 220px;
+}
+
+.sidebar-logo {
+  height: 50px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  color: #fff;
+  font-size: 20px;
+}
+
+.el-menu-item.is-active {
+  background-color: #1890ff !important;
+}
+
+.el-menu-item:hover {
+  background-color: #263445 !important;
+}
+</style>

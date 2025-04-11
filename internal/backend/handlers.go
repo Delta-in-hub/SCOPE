@@ -2,6 +2,7 @@ package backend
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"scope/database/redis"
@@ -110,11 +111,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	// 处理登录
 	accessToken, refreshToken, expiryTime, err := h.authService.LoginUser(req.Email, req.Password)
 	if err != nil {
-		if err == ErrInvalidCredentials {
-			http.Error(w, "无效的凭证", http.StatusUnauthorized)
-		} else {
-			http.Error(w, "登录失败", http.StatusInternalServerError)
-		}
+		http.Error(w, fmt.Sprintf("登录失败: %v", err), http.StatusUnauthorized)
 		return
 	}
 
@@ -165,11 +162,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	// 处理注册
 	user, err := h.authService.RegisterUser(req.Email, req.Password, req.DisplayName)
 	if err != nil {
-		if err == ErrEmailAlreadyExists {
-			http.Error(w, "邮箱已被注册", http.StatusConflict)
-		} else {
-			http.Error(w, "注册失败", http.StatusInternalServerError)
-		}
+		http.Error(w, fmt.Sprintf("注册失败: %v", err), http.StatusInternalServerError)
 		return
 	}
 
