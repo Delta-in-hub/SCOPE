@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"scope/database/postgres"
 	"scope/database/redis"
+	_ "scope/docs/backend"
 	"scope/internal/backend"
 	"scope/internal/middleware"
 	"scope/internal/utils"
@@ -17,8 +18,19 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+	httpSwagger "github.com/swaggo/http-swagger"
 )
 
+// @title Scope Center Backend API
+// @version 1.0
+// @description Scope Center Backend API
+// @termsOfService http://swagger.io/terms/
+
+// @contact.name Delta
+// @contact.url https://github.com/Delta-in-hub/ebpf-golang
+// @contact.email DeltaMail@qq.com
+
+// @host 127.0.0.1:18080
 func main() {
 	// 加载环境变量
 	if err := godotenv.Load(".env"); err != nil {
@@ -101,6 +113,10 @@ func main() {
 
 	// 设置路由
 	router := backend.SetupRouter(backendHandler, middleware)
+
+	router.Get("/swagger/*", httpSwagger.Handler(
+		httpSwagger.URL("http://localhost:18080/swagger/doc.json"), //The url pointing to API definition
+	))
 
 	// 启动服务器
 	serverAddr := fmt.Sprintf(":%d", *port)
