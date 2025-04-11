@@ -238,10 +238,8 @@ CREATE TABLE events_os (
     exec_filename TEXT,
     exec_args TEXT
 );`
-	createEventsOsHypertableSQL   = `SELECT create_hypertable('events_os', 'ts', chunk_time_interval => INTERVAL '1 day');`
-	createEventsOsIdxMachineIDSQL = `CREATE INDEX IF NOT EXISTS ix_events_os_machine_id_ts ON events_os (machine_id, ts DESC);`
-	createEventsOsIdxSubtypeSQL   = `CREATE INDEX IF NOT EXISTS ix_events_os_subtype_ts ON events_os (event_subtype, ts DESC);`
-	createEventsOsIdxPidSQL       = `CREATE INDEX IF NOT EXISTS ix_events_os_pid_ts ON events_os (pid, ts DESC);`
+	createEventsOsHypertableSQL     = `SELECT create_hypertable('events_os', by_range('ts'));`
+	createEventsOsSetCompressionSQL = `ALTER TABLE events_os SET (timescaledb.compress = true);`
 
 	// --- events_cuda ---
 	createEventsCudaTableSQL = `
@@ -267,11 +265,8 @@ CREATE TABLE events_cuda (
     cuda_memcpy_type TEXT,
     cuda_sync_duration_ns BIGINT
 );`
-	createEventsCudaHypertableSQL   = `SELECT create_hypertable('events_cuda', 'ts', chunk_time_interval => INTERVAL '1 day');`
-	createEventsCudaIdxMachineIDSQL = `CREATE INDEX IF NOT EXISTS ix_events_cuda_machine_id_ts ON events_cuda (machine_id, ts DESC);`
-	createEventsCudaIdxSubtypeSQL   = `CREATE INDEX IF NOT EXISTS ix_events_cuda_subtype_ts ON events_cuda (event_subtype, ts DESC);`
-	createEventsCudaIdxPidSQL       = `CREATE INDEX IF NOT EXISTS ix_events_cuda_pid_ts ON events_cuda (pid, ts DESC);`
-	createEventsCudaIdxOperationSQL = `CREATE INDEX IF NOT EXISTS ix_events_cuda_operation_ts ON events_cuda (operation, ts DESC);` // Corrected index name
+	createEventsCudaHypertableSQL     = `SELECT create_hypertable('events_cuda', by_range('ts'));`
+	createEventsCudaSetCompressionSQL = `ALTER TABLE events_cuda SET (timescaledb.compress = true);`
 
 	// --- events_ggml ---
 	createEventsGgmlTableSQL = `
@@ -293,11 +288,8 @@ CREATE TABLE events_ggml (
     ggml_mem_size BIGINT,
     ggml_mem_ptr BIGINT
 );`
-	createEventsGgmlHypertableSQL   = `SELECT create_hypertable('events_ggml', 'ts', chunk_time_interval => INTERVAL '1 day');`
-	createEventsGgmlIdxMachineIDSQL = `CREATE INDEX IF NOT EXISTS ix_events_ggml_machine_id_ts ON events_ggml (machine_id, ts DESC);`
-	createEventsGgmlIdxSubtypeSQL   = `CREATE INDEX IF NOT EXISTS ix_events_ggml_subtype_ts ON events_ggml (event_subtype, ts DESC);`
-	createEventsGgmlIdxPidSQL       = `CREATE INDEX IF NOT EXISTS ix_events_ggml_pid_ts ON events_ggml (pid, ts DESC);`
-	createEventsGgmlIdxOperationSQL = `CREATE INDEX IF NOT EXISTS ix_events_ggml_operation_ts ON events_ggml (operation, ts DESC);` // Corrected index name
+	createEventsGgmlHypertableSQL     = `SELECT create_hypertable('events_ggml', by_range('ts'));`
+	createEventsGgmlSetCompressionSQL = `ALTER TABLE events_ggml SET (timescaledb.compress = true);`
 
 	// --- events_app_log ---
 	createEventsAppLogTableSQL = `
@@ -310,10 +302,8 @@ CREATE TABLE events_app_log (
     cmdline TEXT,
     log_text TEXT
 );`
-	createEventsAppLogHypertableSQL   = `SELECT create_hypertable('events_app_log', 'ts', chunk_time_interval => INTERVAL '1 day');` // Adjusted interval for consistency, change if needed
-	createEventsAppLogIdxMachineIDSQL = `CREATE INDEX IF NOT EXISTS ix_events_app_log_machine_id_ts ON events_app_log (machine_id, ts DESC);`
-	createEventsAppLogIdxSubtypeSQL   = `CREATE INDEX IF NOT EXISTS ix_events_app_log_subtype_ts ON events_app_log (event_subtype, ts DESC);`
-	createEventsAppLogIdxPidSQL       = `CREATE INDEX IF NOT EXISTS ix_events_app_log_pid_ts ON events_app_log (pid, ts DESC);`
+	createEventsAppLogHypertableSQL     = `SELECT create_hypertable('events_app_log', by_range('ts'));`
+	createEventsAppLogSetCompressionSQL = `ALTER TABLE events_app_log SET (timescaledb.compress = true);`
 )
 
 // InitializeTSDBSchema ensures the required TimescaleDB extension and tables exist.
@@ -330,35 +320,25 @@ func InitializeTSDBSchema(ctx context.Context, db *sqlx.DB) error {
 
 	// 2. Initialize each table group
 	if err := initializeTableGroup(ctx, db, "events_os", createEventsOsTableSQL, createEventsOsHypertableSQL, []string{
-		createEventsOsIdxMachineIDSQL,
-		createEventsOsIdxSubtypeSQL,
-		createEventsOsIdxPidSQL,
+		createEventsOsSetCompressionSQL,
 	}); err != nil {
 		return err
 	}
 
 	if err := initializeTableGroup(ctx, db, "events_cuda", createEventsCudaTableSQL, createEventsCudaHypertableSQL, []string{
-		createEventsCudaIdxMachineIDSQL,
-		createEventsCudaIdxSubtypeSQL,
-		createEventsCudaIdxPidSQL,
-		createEventsCudaIdxOperationSQL,
+		createEventsCudaSetCompressionSQL,
 	}); err != nil {
 		return err
 	}
 
 	if err := initializeTableGroup(ctx, db, "events_ggml", createEventsGgmlTableSQL, createEventsGgmlHypertableSQL, []string{
-		createEventsGgmlIdxMachineIDSQL,
-		createEventsGgmlIdxSubtypeSQL,
-		createEventsGgmlIdxPidSQL,
-		createEventsGgmlIdxOperationSQL,
+		createEventsGgmlSetCompressionSQL,
 	}); err != nil {
 		return err
 	}
 
 	if err := initializeTableGroup(ctx, db, "events_app_log", createEventsAppLogTableSQL, createEventsAppLogHypertableSQL, []string{
-		createEventsAppLogIdxMachineIDSQL,
-		createEventsAppLogIdxSubtypeSQL,
-		createEventsAppLogIdxPidSQL,
+		createEventsAppLogSetCompressionSQL,
 	}); err != nil {
 		return err
 	}

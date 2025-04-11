@@ -104,7 +104,8 @@ func parseMapLine(line string) (*mapEntry, error) {
 }
 
 var (
-	symbolCache        sync.Map
+	symbolCache        map[string]SymbolInfo
+	symbolCacheLock    sync.Mutex
 	lastClearCacheTime time.Time
 )
 
@@ -112,7 +113,7 @@ var (
 // pid: 目标进程的 ID
 // ptr: 目标进程内的内存地址
 // 返回: 符号信息指针和错误 (如果发生)
-func FindSymbolFromPidPtr(pid int, ptr uintptr) (*SymbolInfo, error) {
+func findSymbolFromPidPtrImpl(pid int, ptr uintptr) (*SymbolInfo, error) {
 	if pid <= 0 {
 		return nil, errors.New("invalid PID provided (must be > 0)")
 	}
@@ -120,16 +121,6 @@ func FindSymbolFromPidPtr(pid int, ptr uintptr) (*SymbolInfo, error) {
 		// Technically a valid address, but unlikely to hold a meaningful user symbol.
 		// Can be adjusted if resolving symbols at address 0 is required.
 		return nil, errors.New("invalid pointer (0x0) provided, usually not a user symbol location")
-	}
-
-	if time.Since(lastClearCacheTime) > 10*time.Minute {
-		symbolCache = sync.Map{}
-		lastClearCacheTime = time.Now()
-	}
-
-	// Check cache first
-	if cached, ok := symbolCache.Load(fmt.Sprintf("%d_%x", pid, ptr)); ok {
-		return cached.(*SymbolInfo), nil
 	}
 
 	addr2line, err := findAddr2line()
@@ -356,6 +347,37 @@ func FindSymbolFromPidPtr(pid int, ptr uintptr) (*SymbolInfo, error) {
 		result.SymbolName = strings.Split(lastLine, " at ")[0]
 	}
 
-	symbolCache.Store(fmt.Sprintf("%d_%x", pid, ptr), result)
 	return result, nil // Success
+}
+
+func FindSymbolFromPidPtr(pid int, ptr uintptr) (*SymbolInfo, error) {
+	if time.Since(lastClearCacheTime) > 10*time.Minute {
+		symbolCacheLock.Lock()
+		if symbolCache == nil {
+			symbolCache = make(map[string]SymbolInfo)
+		}
+		clear(symbolCache)
+		lastClearCacheTime = time.Now()
+		symbolCacheLock.Unlock()
+	}
+
+	// Check cache first
+	symbolCacheLock.Lock()
+	cached, ok := symbolCache[fmt.Sprintf("%d_%x", pid, ptr)]
+	symbolCacheLock.Unlock()
+	if ok {
+		return &cached, nil
+	}
+
+	res, err := findSymbolFromPidPtrImpl(pid, ptr)
+	if err != nil {
+		return nil, err
+	}
+
+	// Store in cache
+	symbolCacheLock.Lock()
+	symbolCache[fmt.Sprintf("%d_%x", pid, ptr)] = *res
+	symbolCacheLock.Unlock()
+
+	return res, nil
 }

@@ -141,7 +141,8 @@ static int handle_event(void *ctx, void *data, size_t data_sz) {
                e->graph_n_leafs, get_order_str(e->graph_order), e->cost_ns);
     }
 
-    struct ggml_graph_compute_event event = {.pid = e->pid,
+    struct ggml_graph_compute_event event = {.timestamp_ns = UnixNanoNow(),
+                                             .pid = e->pid,
                                              .comm = "",
                                              .graph_size = e->graph_size,
                                              .graph_n_nodes = e->graph_n_nodes,

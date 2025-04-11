@@ -12,18 +12,27 @@ import (
 
 var (
 	lastClearCmdlineCacheTime time.Time
-	cmdlineCache              sync.Map
-	lastClearCommCacheTime    time.Time
-	commCache                 sync.Map
+	cmdlineCache              map[int]string
+	cmdlineCacheLock          sync.Mutex
+
+	lastClearCommCacheTime time.Time
+	commCache              map[int]string
+	commCacheLock          sync.Mutex
 )
 
 func ClearCmdlineCache() {
-	cmdlineCache = sync.Map{}
+	if cmdlineCache == nil {
+		cmdlineCache = make(map[int]string)
+	}
+	clear(cmdlineCache)
 	lastClearCmdlineCacheTime = time.Now()
 }
 
 func ClearCommCache() {
-	commCache = sync.Map{}
+	if commCache == nil {
+		commCache = make(map[int]string)
+	}
+	clear(commCache)
 	lastClearCommCacheTime = time.Now()
 }
 
@@ -49,20 +58,16 @@ func GetCmdline(pid int) (string, error) {
 
 	// --- 0. 清理过期缓存 ---
 	if time.Since(lastClearCmdlineCacheTime) > 5*time.Minute {
+		cmdlineCacheLock.Lock()
 		ClearCmdlineCache()
+		cmdlineCacheLock.Unlock()
 	}
 
-	// --- 1. 检查缓存 (使用 sync.Map.Load) ---
-	// Load 原子地加载 key 对应的 value。
-	// 返回值是 interface{} 类型，需要进行类型断言。
-	cachedValue, found := cmdlineCache.Load(pid)
+	cmdlineCacheLock.Lock()
+	cachedValue, found := cmdlineCache[pid]
+	cmdlineCacheLock.Unlock()
 	if found {
-		// 缓存命中，进行类型断言
-		// 假设我们只存储 string 类型
-		cmdlineStr, ok := cachedValue.(string)
-		if ok {
-			return cmdlineStr, nil
-		}
+		return cachedValue, nil
 	}
 
 	// --- 2. 缓存未命中，从 /proc 读取 ---
@@ -79,8 +84,9 @@ func GetCmdline(pid int) (string, error) {
 	cmdlineStr := string(bytes.ReplaceAll(content, []byte{'\x00'}, []byte{' '}))
 	cmdlineStr = strings.TrimSuffix(cmdlineStr, " ")
 
-	// --- 4. 更新缓存 (使用 sync.Map.Store) ---
-	cmdlineCache.Store(pid, cmdlineStr)
+	cmdlineCacheLock.Lock()
+	cmdlineCache[pid] = cmdlineStr
+	cmdlineCacheLock.Unlock()
 
 	return cmdlineStr, nil
 }
@@ -91,20 +97,16 @@ func GetComm(pid int) (string, error) {
 	}
 
 	if time.Since(lastClearCommCacheTime) > 5*time.Minute {
+		commCacheLock.Lock()
 		ClearCommCache()
+		commCacheLock.Unlock()
 	}
 
-	// --- 1. 检查缓存 (使用 sync.Map.Load) ---
-	// Load 原子地加载 key 对应的 value。
-	// 返回值是 interface{} 类型，需要进行类型断言。
-	cachedValue, found := commCache.Load(pid)
+	commCacheLock.Lock()
+	cachedValue, found := commCache[pid]
+	commCacheLock.Unlock()
 	if found {
-		// 缓存命中，进行类型断言
-		// 假设我们只存储 string 类型
-		commStr, ok := cachedValue.(string)
-		if ok {
-			return commStr, nil
-		}
+		return cachedValue, nil
 	}
 
 	// --- 2. 缓存未命中，从 /proc 读取 ---
@@ -119,8 +121,10 @@ func GetComm(pid int) (string, error) {
 	}
 
 	commStr := string(content)
-	// --- 4. 更新缓存 (使用 sync.Map.Store) ---
-	commCache.Store(pid, commStr)
+
+	commCacheLock.Lock()
+	commCache[pid] = commStr
+	commCacheLock.Unlock()
 
 	return commStr, nil
 }
