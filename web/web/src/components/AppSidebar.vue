@@ -3,9 +3,9 @@
     :default-active="activeRoute"
     class="sidebar-menu"
     :collapse="isCollapse"
-    background-color="#001529"
-    text-color="#fff"
-    active-text-color="#1890ff"
+    background-color="rgba(0, 21, 41, 0.95)"
+    text-color="#ffffff"
+    active-text-color="#ffffff"
     router
   >
     <div class="sidebar-logo" @click="toggleCollapse">
@@ -72,10 +72,28 @@ const toggleCollapse = () => {
 }
 
 .el-menu-item.is-active {
-  background-color: #1890ff !important;
+  background-color: rgba(24, 144, 255, 0.8) !important;
+  font-weight: bold;
 }
 
 .el-menu-item:hover {
-  background-color: #263445 !important;
+  background-color: rgba(38, 52, 69, 0.8) !important;
+}
+
+.el-menu-item, .el-sub-menu__title, .el-sub-menu .el-menu-item {
+  color: #ffffff !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.el-sub-menu .el-menu {
+  background-color: rgba(0, 10, 20, 0.95) !important;
+}
+
+.el-sub-menu .el-menu-item:hover {
+  background-color: rgba(38, 52, 69, 0.8) !important;
+}
+
+.el-sub-menu .el-menu-item.is-active {
+  background-color: rgba(24, 144, 255, 0.8) !important;
 }
 </style>

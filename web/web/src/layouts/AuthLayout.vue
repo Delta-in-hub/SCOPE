@@ -26,13 +26,16 @@ const currentYear = computed(() => new Date().getFullYear());
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background-color: #f0f2f5;
-  background-image: radial-gradient(circle at 50% 50%, rgba(0, 0, 0, 0.02) 0%, rgba(0, 0, 0, 0.05) 100%);
+  background-color: transparent;
+  position: relative;
+  z-index: 2;
 }
 
 .auth-header {
   padding: 20px 0;
   text-align: center;
+  position: relative;
+  z-index: 10;
 }
 
 .logo {
@@ -58,6 +61,8 @@ const currentYear = computed(() => new Date().getFullYear());
   display: flex;
   justify-content: center;
   align-items: center;
+  position: relative;
+  z-index: 5;
 }
 
 .auth-footer {
@@ -65,5 +70,7 @@ const currentYear = computed(() => new Date().getFullYear());
   padding: 20px 0;
   color: #999;
   font-size: 14px;
+  position: relative;
+  z-index: 10;
 }
 </style>

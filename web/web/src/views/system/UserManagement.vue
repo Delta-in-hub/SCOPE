@@ -1,10 +1,10 @@
 <template>
   <div class="user-management">
-    <el-card>
+    <el-card class="user-card">
       <template #header>
         <div class="card-header">
-          <span>用户管理</span>
-          <el-button type="primary" @click="openAddUserDialog">
+          <span class="header-title">用户管理</span>
+          <el-button type="primary" @click="openAddUserDialog" class="add-button" round>
             <el-icon><Plus /></el-icon>添加用户
           </el-button>
         </div>
@@ -276,6 +276,23 @@ onMounted(() => {
 <style scoped>
 .user-management {
   padding: 20px;
+  height: calc(100vh - 120px);
+  display: flex;
+  flex-direction: column;
+}
+
+.user-card {
+  flex: 1;
+  margin-bottom: 20px;
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  background-color: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .card-header {
@@ -284,9 +301,63 @@ onMounted(() => {
   align-items: center;
 }
 
+.header-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1d1d1f;
+}
+
+.add-button {
+  margin-left: 10px;
+  font-size: 14px;
+}
+
 .pagination-container {
   margin-top: 20px;
   display: flex;
   justify-content: flex-end;
+}
+
+:deep(.el-table) {
+  background-color: transparent;
+  border-radius: 8px;
+  overflow: hidden;
+  flex: 1;
+}
+
+:deep(.el-table__header) {
+  background-color: rgba(245, 247, 250, 0.8);
+}
+
+:deep(.el-table__row) {
+  background-color: rgba(255, 255, 255, 0.6);
+}
+
+:deep(.el-table__row:hover) {
+  background-color: rgba(245, 247, 250, 0.9) !important;
+}
+
+:deep(.el-table--striped .el-table__row.striped) {
+  background-color: rgba(250, 250, 252, 0.8);
+}
+
+:deep(.el-dialog) {
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+:deep(.el-dialog__header) {
+  background-color: rgba(245, 247, 250, 0.9);
+  padding: 15px 20px;
+  margin-right: 0;
+}
+
+:deep(.el-dialog__body) {
+  padding: 20px;
+}
+
+:deep(.el-dialog__footer) {
+  padding: 10px 20px 20px;
+  border-top: 1px solid rgba(0, 0, 0, 0.05);
 }
 </style>

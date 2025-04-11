@@ -1,9 +1,9 @@
 <template>
   <div class="system-settings">
-    <el-card>
+    <el-card class="settings-card">
       <template #header>
         <div class="card-header">
-          <span>系统设置</span>
+          <span class="header-title">系统设置</span>
         </div>
       </template>
       
@@ -296,18 +296,102 @@ onMounted(() => {
 <style scoped>
 .system-settings {
   padding: 20px;
+  height: calc(100vh - 120px);
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-card {
+  flex: 1;
+  margin-bottom: 20px;
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  background-color: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .card-header {
-  font-weight: bold;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.header-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1d1d1f;
 }
 
 .settings-form {
   max-width: 600px;
   margin-top: 20px;
+  background-color: rgba(255, 255, 255, 0.7);
+  padding: 20px;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
 .el-tabs {
   margin-top: 10px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+:deep(.el-tabs__content) {
+  flex: 1;
+  overflow: auto;
+  padding: 10px 0;
+}
+
+:deep(.el-tabs__header) {
+  background-color: rgba(245, 247, 250, 0.8);
+  border-radius: 8px 8px 0 0;
+  margin-bottom: 15px;
+  padding: 5px 15px 0;
+}
+
+:deep(.el-tabs__nav) {
+  border: none !important;
+}
+
+:deep(.el-tabs__item) {
+  height: 40px;
+  line-height: 40px;
+  font-size: 15px;
+  color: #606266;
+}
+
+:deep(.el-tabs__item.is-active) {
+  color: #0071e3;
+  font-weight: 500;
+}
+
+:deep(.el-tabs__active-bar) {
+  background-color: #0071e3;
+  height: 3px;
+  border-radius: 3px;
+}
+
+:deep(.el-form-item__label) {
+  font-weight: 500;
+  color: #303133;
+}
+
+:deep(.el-button--primary) {
+  background: linear-gradient(90deg, #0071e3, #42a5f5);
+  border: none;
+  transition: all 0.3s ease;
+}
+
+:deep(.el-button--primary:hover) {
+  background: linear-gradient(90deg, #005bb5, #3994e4);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 113, 227, 0.3);
 }
 </style>

@@ -1,11 +1,13 @@
 <template>
-  <div>
-    <el-card>
+  <div class="node-list-container">
+    <el-card class="node-card">
       <template #header>
-        <span>节点列表</span>
-         <el-button style="float: right; padding: 3px 0" type="primary" link @click="fetchNodes" :loading="loading">
+        <div class="card-header">
+          <span class="header-title">节点列表</span>
+          <el-button class="refresh-button" type="primary" @click="fetchNodes" :loading="loading" round>
             <el-icon><Refresh /></el-icon>刷新
-         </el-button>
+          </el-button>
+        </div>
       </template>
 
       <el-table v-loading="loading" :data="nodes" style="width: 100%" border stripe>
@@ -32,14 +34,13 @@
                {{ formatDateTime(row.last_seen) }}
            </template>
         </el-table-column>
-        <!-- 可以添加更多列，例如 latency (需要格式化 time.Duration) -->
-        <!--
-        <el-table-column prop="latency" label="延迟" width="100">
+        <el-table-column prop="latency" label="通信延迟" width="120">
             <template #default="{ row }">
-                {{ formatDuration(row.latency) }}
+                <el-tag :type="getLatencyTagType(row.latency)" size="small" effect="light">
+                    {{ formatDuration(row.latency) }}
+                </el-tag>
             </template>
         </el-table-column>
-        -->
       </el-table>
 
        <el-alert v-if="error" :title="error" type="error" show-icon :closable="false" style="margin-top: 15px;" />
@@ -95,20 +96,130 @@ const formatDateTime = (dateTimeString) => {
   }
 };
 
-// 格式化 Go 的 time.Duration (纳秒) 为更易读的格式 (可选)
-// const formatDuration = (ns) => {
-//   if (ns === undefined || ns === null) return 'N/A';
-//   if (ns < 1000) return `${ns} ns`;
-//   if (ns < 1000000) return `${(ns / 1000).toFixed(1)} µs`;
-//   if (ns < 1000000000) return `${(ns / 1000000).toFixed(1)} ms`;
-//   return `${(ns / 1000000000).toFixed(2)} s`;
-// };
+// 格式化Go的time.Duration类型
+const formatDuration = (duration) => {
+  if (!duration) return 'N/A';
+  
+  // Go的time.Duration是纳秒为单位的字符串
+  // 例如："1.234s"、"4.56ms"、"789µs"、"12ns"
+  
+  // 如果已经是格式化的字符串，直接返回
+  if (typeof duration === 'string') {
+    // 将µs替换为ms，使其更易读
+    if (duration.includes('µs')) {
+      const microseconds = parseFloat(duration.replace('µs', ''));
+      return (microseconds / 1000).toFixed(2) + 'ms';
+    }
+    return duration;
+  }
+  
+  // 如果是数字（纳秒），则转换为合适的单位
+  const ns = Number(duration);
+  if (isNaN(ns)) return 'N/A';
+  
+  if (ns < 1000) {
+    return ns + 'ns';
+  } else if (ns < 1000000) {
+    return (ns / 1000).toFixed(2) + 'µs';
+  } else if (ns < 1000000000) {
+    return (ns / 1000000).toFixed(2) + 'ms';
+  } else {
+    return (ns / 1000000000).toFixed(2) + 's';
+  }
+};
+
+// 根据延迟时间获取标签类型
+const getLatencyTagType = (duration) => {
+  if (!duration) return 'info';
+  
+  let ms = 0;
+  
+  // 处理字符串格式
+  if (typeof duration === 'string') {
+    if (duration.includes('ns')) {
+      ms = parseFloat(duration) / 1000000;
+    } else if (duration.includes('µs')) {
+      ms = parseFloat(duration) / 1000;
+    } else if (duration.includes('ms')) {
+      ms = parseFloat(duration);
+    } else if (duration.includes('s') && !duration.includes('ms') && !duration.includes('µs') && !duration.includes('ns')) {
+      ms = parseFloat(duration) * 1000;
+    }
+  } else {
+    // 处理数字格式（纳秒）
+    ms = Number(duration) / 1000000;
+  }
+  
+  // 根据延迟时间返回不同的标签类型
+  if (ms < 10) return 'success'; // 小于10ms，非常好
+  if (ms < 50) return ''; // 小于50ms，正常
+  if (ms < 100) return 'warning'; // 小于100ms，警告
+  return 'danger'; // 大于等于100ms，危险
+};
 
 </script>
 
 <style scoped>
-/* 可以添加一些页面特定样式 */
-.el-card {
-    margin: 20px;
+.node-list-container {
+  padding: 20px;
+  height: calc(100vh - 120px);
+  display: flex;
+  flex-direction: column;
+}
+
+.node-card {
+  flex: 1;
+  margin-bottom: 20px;
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  background-color: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  overflow: hidden;
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.header-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1d1d1f;
+}
+
+.refresh-button {
+  margin-left: 10px;
+  font-size: 14px;
+}
+
+:deep(.el-table) {
+  background-color: transparent;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+:deep(.el-table__header) {
+  background-color: rgba(245, 247, 250, 0.8);
+}
+
+:deep(.el-table__row) {
+  background-color: rgba(255, 255, 255, 0.6);
+}
+
+:deep(.el-table__row:hover) {
+  background-color: rgba(245, 247, 250, 0.9) !important;
+}
+
+:deep(.el-table--striped .el-table__row.striped) {
+  background-color: rgba(250, 250, 252, 0.8);
+}
+
+:deep(.el-tag) {
+  border-radius: 12px;
+  padding: 2px 10px;
 }
 </style>
