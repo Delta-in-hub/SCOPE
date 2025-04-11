@@ -93,3 +93,11 @@ func Decrypt(ciphertextWithNonce []byte, keyInHex string) ([]byte, error) {
 
 	return plaintext, nil
 }
+
+func GenerateRandomString(size int) (string, error) {
+	arr := make([]byte, size)
+	if _, err := rand.Read(arr); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(arr), nil
+}

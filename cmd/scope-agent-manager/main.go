@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"runtime"
 	"scope/database/redis"
@@ -11,6 +12,7 @@ import (
 	"scope/internal/utils"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/joho/godotenv"
 	zmq "github.com/pebbe/zmq4"
@@ -127,6 +129,31 @@ func main() {
 	if config.Verbose {
 		fmt.Printf("Starting %d processor goroutines...\n", numProcessors)
 	}
+
+	port := utils.GetEnvOrDefault("AGENT_PORT", "18090")
+	chi := agentmanager.SetupRouter()
+	myips := utils.GetMyIpAddrs()
+	for _, ip := range myips {
+		log.Printf("Starting agent manager on ip http://%s:%s\n", ip, port)
+	}
+
+	wg.Add(1)
+	go func(wg *sync.WaitGroup) {
+		defer wg.Done()
+		centerURL := utils.GetEnvOrDefault("CENTER_URL", "http://localhost:18080")
+		for {
+			token, err := agentmanager.RegisterNodeToCenter(centerURL)
+			if err != nil {
+				log.Printf("Failed to register node to center: %v", err)
+				time.Sleep(5 * time.Second)
+			} else {
+				log.Printf("Successfully registered node to center %s , token: %s", centerURL, token)
+				break
+			}
+		}
+	}(&wg)
+
+	log.Fatal(http.ListenAndServe(":"+port, chi))
 
 	// Wait for all goroutines to complete
 	wg.Wait()

@@ -300,3 +300,5 @@ sketch
 
 bpf/corpus.txt
 go.sum
+*.tar.gz
+cudademo

@@ -1,4 +1,4 @@
-package auth
+package backend
 
 import (
 	"context"
@@ -7,8 +7,10 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
+	"scope/database/redis"
 	"scope/internal/middleware"
 	"scope/internal/models"
+	"scope/internal/utils"
 )
 
 // 错误定义
@@ -176,4 +178,43 @@ func (s *AuthService) LogoutUser(refreshToken string) error {
 	}
 
 	return nil
+}
+
+type NodeService struct {
+	nodeStore *redis.NodeStore
+}
+
+func (s *NodeService) NodeUp(ctx context.Context, node models.NodeInfo) (string, error) {
+	random32, err := utils.GenerateRandomString(32)
+	if err != nil {
+		return "", err
+	}
+	node.Token = random32
+	return random32, s.nodeStore.UpdateNode(ctx, node)
+}
+
+func (s *NodeService) NodeDown(ctx context.Context, node models.NodeInfo) error {
+	if node.Status != "offline" {
+		node.Status = "offline"
+	}
+	nodeinredis, err := s.GetNode(ctx, node.ID)
+	if err != nil {
+		return err
+	}
+	if nodeinredis.Token != node.Token {
+		return errors.New("token mismatch")
+	}
+	return s.nodeStore.UpdateNode(ctx, node)
+}
+
+func (s *NodeService) ListNodes(ctx context.Context) ([]models.NodeInfo, error) {
+	return s.nodeStore.ListNodes(ctx)
+}
+
+func (s *NodeService) GetNode(ctx context.Context, id string) (models.NodeInfo, error) {
+	return s.nodeStore.GetNode(ctx, id)
+}
+
+func (s *NodeService) DeleteNode(ctx context.Context, id string) error {
+	return s.nodeStore.DeleteNode(ctx, id)
 }

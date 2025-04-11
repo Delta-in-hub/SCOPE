@@ -10,7 +10,6 @@ import (
 	"runtime"
 	"scope/database/postgres"
 	"scope/database/redis"
-	"scope/internal/auth"
 	"scope/internal/backend"
 	"scope/internal/middleware"
 	"scope/internal/utils"
@@ -48,7 +47,6 @@ func main() {
 		AccessTokenExpiry:  time.Hour,          // 访问令牌有效期1小时
 		RefreshTokenExpiry: time.Hour * 24 * 7, // 刷新令牌有效期7天
 	}
-	tokenService := middleware.NewTokenService(tokenConfig)
 
 	// 初始化PostgreSQL连接
 	dbConfig := postgres.Config{
@@ -75,7 +73,7 @@ func main() {
 	redisConfig := redis.Config{
 		Addr:     utils.GetEnvOrDefault("REDIS_ADDR", "localhost:6379"),
 		Password: utils.GetEnvOrDefault("REDIS_PASSWORD", ""),
-		DB:       0,
+		DB:       0, // 0 for user
 	}
 
 	redisClient, err := redis.NewClient(redisConfig)
@@ -86,21 +84,23 @@ func main() {
 
 	// 创建令牌存储
 	tokenStore := redis.NewTokenStore(redisClient)
-
 	// 创建用户存储
 	userStore := postgres.NewUserStore(db)
-
 	// 创建认证服务
-	authService := auth.NewAuthService(userStore, tokenService, tokenStore)
+	tokenService := middleware.NewTokenService(tokenConfig)
+	authService := backend.NewAuthService(userStore, tokenService, tokenStore)
 
 	// 创建认证处理器
-	authHandler := auth.NewHandler(authService)
+	redisconfig4node := redisConfig
+	redisconfig4node.DB = 2 // 2 for Node Stroe
+
+	backendHandler := backend.NewHandler(authService, redisconfig4node)
 
 	// 创建认证中间件
-	authMiddleware := middleware.NewAuthMiddleware(tokenService)
+	middleware := middleware.NewAuthMiddleware(tokenService)
 
 	// 设置路由
-	router := auth.SetupRouter(authHandler, authMiddleware)
+	router := backend.SetupRouter(backendHandler, middleware)
 
 	// 启动服务器
 	serverAddr := fmt.Sprintf(":%d", *port)
@@ -123,7 +123,7 @@ func main() {
 	streamConfig := redis.Config{
 		Addr:     utils.GetEnvOrDefault("REDIS_ADDR", "localhost:6379"),
 		Password: utils.GetEnvOrDefault("REDIS_PASSWORD", ""),
-		DB:       1,
+		DB:       1, // 1 for stream messages queue
 	}
 
 	streamClient, err := redis.NewClient(streamConfig)
@@ -133,6 +133,11 @@ func main() {
 	defer streamClient.Close()
 
 	var wg sync.WaitGroup
+
+	// 启动Node Ping Checker
+	wg.Add(1)
+	go backend.NodePingChecker(&wg, backendHandler)
+
 	var cpunum = runtime.NumCPU() / 2
 	if cpunum < 1 {
 		cpunum = 1

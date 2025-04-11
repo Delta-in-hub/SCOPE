@@ -1,4 +1,4 @@
-package auth
+package backend
 
 import (
 	"github.com/go-chi/chi/v5"
@@ -28,6 +28,16 @@ func SetupRouter(handler *Handler, authMiddleware *authMiddleware.AuthMiddleware
 		r.Group(func(r chi.Router) {
 			r.Use(authMiddleware.Authenticate)
 			r.Post("/logout", handler.Logout)
+		})
+	})
+
+	r.Route("/api/v1/node", func(r chi.Router) {
+		r.Post("/up", handler.nodeHandler.NodeUp)
+		r.Post("/down", handler.nodeHandler.NodeDown)
+
+		r.Group(func(r chi.Router) {
+			r.Use(authMiddleware.Authenticate)
+			r.Get("/list", handler.nodeHandler.NodeList)
 		})
 	})
 
