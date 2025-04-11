@@ -1,0 +1,66 @@
+#! sudo bpftrace
+
+
+
+/*
+libggml-cpu-alderlake.so
+
+
+2.  **`uprobe:/usr/lib/ollama/cuda_v12/libggml-cuda.so:ggml_cuda_op_mul_mat_vec_q`** 和 **`uprobe:/usr/lib/ollama/cuda_v12/libggml-cuda.so:ggml_cuda_op_mul_mat_q`** (CUDA 后端)
+    *   **原因**: 这两个函数（分别是 quantized matrix-vector 和 matrix-matrix 乘法）是 LLM 推理中最核心、计算量最大的操作之一，尤其是在 GPU 上。它们的高调用频率（分别为 9975 和 165 次，加起来非常显著）表明了它们的重要性。监控这些函数可以深入了解 GPU 的计算负载和性能瓶颈，例如可以统计调用次数、计算每次调用的耗时。
+
+// TODO
+5.  **`uprobe:/usr/lib/ollama/cuda_v12/libggml-cuda.so:ggml_cuda_pool_vmm::alloc`** 和 **`uprobe:/usr/lib/ollama/cuda_v12/libggml-cuda.so:ggml_cuda_pool_vmm::free`** (CUDA 后端)
+    *   **原因**: 这两个函数直接关联到 CUDA 虚拟内存管理（VMM）池的内存分配和释放。监控它们可以精确地追踪 GPU 显存的使用情况，了解显存的动态分配/释放模式，对于诊断显存不足或碎片化问题非常有价值。高调用频率（10473 次）说明 GPU 内存操作非常频繁。
+
+
+// TODO
+6.  **`uprobe:/usr/lib/ollama/cuda_v12/libggml-cuda.so:ggml_cuda_cpy`** (CUDA 后端)
+    *   **原因**: 这个函数负责在 GPU 内部或 Host（CPU内存）与 Device（GPU显存）之间复制数据。数据传输是常见的性能瓶颈之一。监控此函数可以了解数据传的方向、大小和频率，有助于识别不必要的传输或优化传输策略。调用频率（4320 次）也相当高。
+
+
+8.  **`uprobe:/usr/lib/ollama/cuda_v12/libggml-cuda.so:ggml_cuda_set_device`** (CUDA 后端)
+    *   **原因**: 如果系统中有多个 GPU，这个函数用于选择当前活动的 GPU 设备。监控它可以确认 Ollama 是否正确地使用了预期的 GPU，或者是否存在不必要的设备切换。
+
+*/
+
+
+// void ggml_cuda_op_mul_mat_vec_q(
+//    ggml_backend_cuda_context & ctx,
+//    const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst, const char * src0_dd_i, const float * src1_ddf_i,
+//    const char * src1_ddq_i, float * dst_dd_i, const int64_t row_low, const int64_t row_high, const int64_t src1_ncols,
+//    const int64_t src1_padded_row_size, cudaStream_t stream) {
+//
+uprobe:/usr/lib/ollama/cuda_v12/libggml-cuda.so:_Z26ggml_cuda_op_mul_mat_vec_qR25ggml_backend_cuda_contextPK11ggml_tensorS3_PS1_PKcPKfS6_PfllllP11CUstream_st
+{
+    @ggml_cuda_op_mul_mat_vec_q[pid] = nsecs;
+}
+
+uretprobe:/usr/lib/ollama/cuda_v12/libggml-cuda.so:_Z26ggml_cuda_op_mul_mat_vec_qR25ggml_backend_cuda_contextPK11ggml_tensorS3_PS1_PKcPKfS6_PfllllP11CUstream_st
+{
+    $calltime = @ggml_cuda_op_mul_mat_vec_q[pid];
+    $cost = nsecs - $calltime;
+    delete(@ggml_cuda_op_mul_mat_vec_q[pid]);
+    printf("%d %s ggml_cuda_op_mul_mat_vec_q cost %d ns\n", pid, comm, $cost);
+}
+
+
+uprobe:/usr/lib/ollama/cuda_v12/libggml-cuda.so:_Z22ggml_cuda_op_mul_mat_qR25ggml_backend_cuda_contextPK11ggml_tensorS3_PS1_PKcPKfS6_PfllllP11CUstream_st
+{
+    @ggml_cuda_op_mul_mat_q[pid] = nsecs;
+}
+
+uretprobe:/usr/lib/ollama/cuda_v12/libggml-cuda.so:_Z22ggml_cuda_op_mul_mat_qR25ggml_backend_cuda_contextPK11ggml_tensorS3_PS1_PKcPKfS6_PfllllP11CUstream_st
+{
+    $calltime = @ggml_cuda_op_mul_mat_q[pid];
+    $cost = nsecs - $calltime;
+    delete(@ggml_cuda_op_mul_mat_q[pid]);
+    printf("%d %s ggml_cuda_op_mul_mat_q cost %d ns\n", pid, comm, $cost);
+}
+
+
+uprobe:/usr/lib/ollama/cuda_v12/libggml-cuda.so:_Z20ggml_cuda_set_devicei
+{
+    $device = arg0;
+    printf("%d %s ggml_cuda_set_device on device(%d)\n", pid, comm, $device);
+}

@@ -1,0 +1,9 @@
+#! sudo bpftrace
+
+// extern void llamaLog(int level, char* text, void* user_data);
+uprobe:/usr/bin/ollama:llamaLog
+{
+    $level = arg0;
+    $text = arg1;
+    printf("%d %s llamaLog %d %s\n", pid, comm, $level, str($text));
+}

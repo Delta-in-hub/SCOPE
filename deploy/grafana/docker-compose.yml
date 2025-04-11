@@ -1,0 +1,19 @@
+
+services:
+  grafana:
+    image: grafana/grafana:11.6.0
+    container_name: scope-grafana
+    ports:
+      - "53000:3000"
+    volumes:
+      - grafana-storage:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admindevpwd
+      - GF_SECURITY_ALLOW_EMBEDDING=true
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+    restart: unless-stopped
+
+
+volumes:
+  grafana-storage:

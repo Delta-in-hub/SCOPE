@@ -1,217 +1,160 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
-	"sync" // Import sync package for WaitGroup
-	"syscall"
+	"net/http"
+	"os"
+	"runtime"
+	"scope/database/redis"
+	"scope/internal/agentmanager"
+	"scope/internal/utils"
+	"strings"
+	"sync"
 	"time"
 
+	"github.com/joho/godotenv"
 	zmq "github.com/pebbe/zmq4"
-	"github.com/vmihailenco/msgpack/v5"
 )
 
-// --- Struct definitions (identical to before) ---
-type CommandPayload struct {
-	_msgpack     struct{} `msgpack:",array"`
-	CommandID    int32
-	TargetDevice string
-	Parameter    float64
-}
-
-type StatusUpdatePayload struct {
-	_msgpack   struct{} `msgpack:",array"`
-	SourceID   int32
-	StatusCode string
-	Details    string
-}
-
-const (
-	MsgTypeCommand = "CMD"
-	MsgTypeStatus  = "STAT"
-)
-
-// --- End Struct definitions ---
-
-// --- Struct to pass raw messages between goroutines ---
-type RawMessage struct {
-	Topic   []byte
-	Payload []byte
-}
-
-// --- Receiver Goroutine ---
-// Reads from ZMQ socket and sends raw messages to the channel.
-func receiver(subscriber *zmq.Socket, msgChan chan<- RawMessage, wg *sync.WaitGroup) {
-	defer wg.Done()      // Signal WaitGroup when this goroutine exits
-	defer close(msgChan) // Close the channel when receiver exits to signal processor
-
-	fmt.Println("Receiver goroutine started.")
-
-	// Poller Setup within the goroutine
-	poller := zmq.NewPoller()
-	poller.Add(subscriber, zmq.POLLIN)
-
-	running := true
-	for running {
-		// Poll the sockets with a timeout
-		// Using a timeout allows checking for context termination implicitly via ETERM error
-		polledSockets, err := poller.Poll(250 * time.Millisecond) // Poll longer, less busy-wait
-		if err != nil {
-			if zmq.AsErrno(err) == zmq.ETERM {
-				fmt.Println("Receiver: Context terminated during poll, exiting.")
-				running = false // Exit loop cleanly
-				continue
-			}
-			if zmq.AsErrno(err) == zmq.Errno(syscall.EINTR) {
-				fmt.Println("Receiver: Poll interrupted, continuing...")
-				continue // Interrupted by signal, loop again
-			}
-			// Log other polling errors but try to continue
-			log.Printf("Receiver: Error polling socket: %v (errno %d)", err, zmq.AsErrno(err))
-			// Maybe add a small delay here if errors persist
-			time.Sleep(500 * time.Millisecond)
-			continue
-		}
-
-		// If Poll returned any ready sockets
-		if len(polledSockets) > 0 {
-			// Receive message parts (Topic + Payload)
-			msgParts, err := subscriber.RecvMessageBytes(0) // Blocking receive is fine after successful poll
-			if err != nil {
-				if zmq.AsErrno(err) == zmq.ETERM {
-					fmt.Println("Receiver: Context terminated during receive, exiting.")
-					running = false // Exit loop cleanly
-					continue
-				}
-				// Handle other potential receive errors
-				log.Printf("Receiver: Error receiving message: %v", err)
-				continue // Skip this message and try again
-			}
-
-			// Validate message structure
-			if len(msgParts) != 2 {
-				log.Printf("Receiver: Error: Received message with %d parts, expected 2 (Topic, Payload)", len(msgParts))
-				continue // Skip malformed message
-			}
-
-			// Create RawMessage and send it on the channel
-			// This might block if the channel buffer is full
-			msg := RawMessage{
-				Topic:   msgParts[0],
-				Payload: msgParts[1],
-			}
-			// Use a select with a timeout or default case if you want to prevent
-			// the receiver from blocking indefinitely if the processor is stuck.
-			// For simplicity now, we assume the processor keeps up or the buffer handles bursts.
-			select {
-			case msgChan <- msg:
-				// Message successfully sent
-				// Example of non-blocking send (might drop messages if processor is slow):
-				// default:
-				//  log.Println("Receiver: Warning - Processor channel full, dropping message.")
-			}
-		} // End if len(polledSockets) > 0
-	} // End for running
-
-	fmt.Println("Receiver goroutine finished.")
-}
-
-// --- Processor Goroutine ---
-// Reads raw messages from the channel, unmarshals, and prints.
-func processor(msgChan <-chan RawMessage, wg *sync.WaitGroup) {
-	defer wg.Done() // Signal WaitGroup when this goroutine exits
-	fmt.Println("Processor goroutine started.")
-
-	// Loop reading from the channel. The loop automatically exits when msgChan is closed.
-	for rawMsg := range msgChan {
-		topic := string(rawMsg.Topic)
-		payloadBytes := rawMsg.Payload
-
-		// Use a switch to handle different topics
-		switch topic {
-		case MsgTypeCommand:
-			var cmd CommandPayload
-			err := msgpack.Unmarshal(payloadBytes, &cmd)
-			if err != nil {
-				log.Printf("Processor: Error unmarshaling CommandPayload: %v", err)
-			} else {
-				// Print received command data
-				fmt.Printf("Processed [%s]: ID=%d, Target='%s', Param=%.2f\n",
-					topic, cmd.CommandID, cmd.TargetDevice, cmd.Parameter)
-				// TODO: Add actual command processing logic here
-			}
-
-		case MsgTypeStatus:
-			var stat StatusUpdatePayload
-			err := msgpack.Unmarshal(payloadBytes, &stat)
-			if err != nil {
-				log.Printf("Processor: Error unmarshaling StatusUpdatePayload: %v", err)
-			} else {
-				// Print received status data
-				fmt.Printf("Processed [%s]: SrcID=%d, Code='%s', Details='%.20s...'\n",
-					topic, stat.SourceID, stat.StatusCode, stat.Details)
-				// TODO: Add actual status processing logic here
-			}
-
-		default:
-			log.Printf("Processor: Error: Received message with unexpected topic '%s'", topic)
-		}
-	} // End for range msgChan
-
-	fmt.Println("Processor goroutine finished (channel closed).")
-}
-
-// --- Main Function ---
 func main() {
-	// ZMQ Context and Socket Setup (SUB)
-	context, err := zmq.NewContext()
+	// Load environment variables
+	godotenv.Load(".env")
+
+	// Parse command line arguments
+	config := agentmanager.Config{
+		IPCEndpoint:   "ipc:///tmp/zmq_ipc_pubsub.sock",
+		RedisAddr:     utils.GetEnvOrDefault("REDIS_ADDR", "localhost:6379"),
+		RedisDB:       1, // 1 for stream message queue
+		RedisPassword: utils.GetEnvOrDefault("REDIS_PASSWORD", ""),
+		StreamKey:     "SCOPE_STREAM",
+	}
+
+	// Define command line flags
+	verboseFlag := flag.Bool("verbose", false, "Enable verbose output")
+	redisAddrFlag := flag.String("redis-addr", config.RedisAddr, "Redis server address")
+	redisDBFlag := flag.Int("redis-db", config.RedisDB, "Redis database number")
+	redisPasswordFlag := flag.String("redis-password", config.RedisPassword, "Redis password")
+	streamKeyFlag := flag.String("stream-key", config.StreamKey, "Redis stream key")
+	ipcEndpointFlag := flag.String("ipc-endpoint", config.IPCEndpoint, "ZMQ IPC endpoint")
+
+	// Parse flags
+	flag.Parse()
+
+	// Update config with command line arguments
+	config.Verbose = *verboseFlag
+	config.RedisAddr = *redisAddrFlag
+	config.RedisDB = *redisDBFlag
+	config.RedisPassword = *redisPasswordFlag
+	config.StreamKey = *streamKeyFlag
+	config.IPCEndpoint = *ipcEndpointFlag
+
+	// Initialize Redis client
+	redisConfig := redis.Config{
+		Addr:     config.RedisAddr,
+		Password: config.RedisPassword,
+		DB:       config.RedisDB,
+	}
+
+	redisClient, err := redis.NewClient(redisConfig)
+	if err != nil {
+		log.Fatalf("Failed to connect to Redis: %v", err)
+	}
+	defer redisClient.Close()
+
+	if config.Verbose {
+		log.Printf("Connected to Redis at %s, using database %d", config.RedisAddr, config.RedisDB)
+		log.Printf("Using Redis stream key: %s", config.StreamKey)
+	}
+
+	// Initialize ZMQ
+	zmqContext, err := zmq.NewContext()
 	if err != nil {
 		log.Fatalf("Error creating ZMQ context: %v", err)
 	}
-	// Use defer context.Term() to ensure it's called even on panic,
-	// but we will also call it explicitly during graceful shutdown.
-	defer context.Term()
+	defer zmqContext.Term()
 
-	subscriber, err := context.NewSocket(zmq.SUB)
+	subscriber, err := zmqContext.NewSocket(zmq.SUB)
 	if err != nil {
 		log.Fatalf("Error creating ZMQ subscriber socket: %v", err)
 	}
 	defer subscriber.Close()
 
-	ipcEndpoint := "ipc:///tmp/zmq_ipc_pubsub.sock"
-	fmt.Printf("Go Subscriber (Multi-Type Concurrent) connecting to %s\n", ipcEndpoint)
+	fmt.Printf("Go Subscriber binding to %s\n", config.IPCEndpoint)
 
-	err = subscriber.Connect(ipcEndpoint)
+	err = subscriber.Bind(config.IPCEndpoint)
 	if err != nil {
-		log.Fatalf("Failed to connect: %v", err)
+		log.Fatalf("Failed to bind subscriber to '%s': %v", config.IPCEndpoint, err)
 	}
-	fmt.Println("Connection initiated.")
 
-	// Subscribe to all topics ("" prefix)
-	err = subscriber.SetSubscribe("")
+	// Set IPC Socket permissions
+	if strings.HasPrefix(config.IPCEndpoint, "ipc://") {
+		socketPath := config.IPCEndpoint[len("ipc://"):] // Get file path
+		// Set permissions to 0666 (owner read/write, group read/write, others read/write)
+		err = os.Chmod(socketPath, 0666)
+		if err != nil {
+			log.Printf("WARN: Failed to change permissions of the IPC socket '%s' to 0666: %v. C clients might fail to connect.", socketPath, err)
+		} else if config.Verbose {
+			fmt.Printf("INFO: Set IPC socket permissions for %s to world-writable (0666)\n", socketPath)
+		}
+	}
+
+	err = subscriber.SetSubscribe("") // Subscribe to all topics
 	if err != nil {
 		log.Fatalf("Error subscribing to topics: %v", err)
 	}
-	fmt.Println("Subscribed to all topics. Waiting for messages...")
 
-	// --- Channel for communication between goroutines ---
-	// Use a buffered channel to decouple receiver and processor slightly
-	// Adjust buffer size based on expected load and processing time
-	const channelBufferSize = 100
-	msgChan := make(chan RawMessage, channelBufferSize)
-
-	// --- WaitGroup for synchronizing goroutine shutdown ---
+	// Create a buffered channel for message passing
+	// Using a large buffer to handle high message rates
+	msgChan := make(chan agentmanager.RawMessage, 20480)
 	var wg sync.WaitGroup
 
-	// --- Start Goroutines ---
-	wg.Add(2) // Expect two goroutines to finish
-	go receiver(subscriber, msgChan, &wg)
-	go processor(msgChan, &wg)
+	// Calculate optimal number of processor goroutines based on CPU cores
+	numProcessors := runtime.NumCPU() / 2
+	if numProcessors < 1 {
+		numProcessors = 1
+	}
 
-	// Wait for all goroutines to finish.
-	fmt.Println("Waiting for goroutines to finish...")
+	// Start processor goroutines
+	wg.Add(numProcessors)
+	for range numProcessors {
+		go agentmanager.Processor(msgChan, &wg, config, redisClient)
+	}
+
+	// Start receiver goroutine
+	wg.Add(1)
+	go agentmanager.ZMQReceiver(subscriber, msgChan, &wg)
+
+	if config.Verbose {
+		fmt.Printf("Starting %d processor goroutines...\n", numProcessors)
+	}
+
+	port := utils.GetEnvOrDefault("AGENT_PORT", "18090")
+	chi := agentmanager.SetupRouter()
+	myips := utils.GetMyIpAddrs()
+	for _, ip := range myips {
+		log.Printf("Starting agent manager on ip http://%s:%s\n", ip, port)
+	}
+
+	wg.Add(1)
+	go func(wg *sync.WaitGroup) {
+		defer wg.Done()
+		centerURL := utils.GetEnvOrDefault("CENTER_URL", "http://localhost:18080")
+		for {
+			token, err := agentmanager.RegisterNodeToCenter(centerURL)
+			if err != nil {
+				log.Printf("Failed to register node to center: %v", err)
+				time.Sleep(5 * time.Second)
+			} else {
+				log.Printf("Successfully registered node to center %s , token: %s", centerURL, token)
+				break
+			}
+		}
+	}(&wg)
+
+	log.Fatal(http.ListenAndServe(":"+port, chi))
+
+	// Wait for all goroutines to complete
 	wg.Wait()
-
-	fmt.Println("All goroutines finished. Exiting.")
-	// Deferred subscriber.Close() and context.Term() will run here if not already called
 }
