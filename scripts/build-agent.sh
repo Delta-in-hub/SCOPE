@@ -3,6 +3,27 @@
 # 启用错误检测和报错
 set -e
 
+# 检查是否为 Debian/Ubuntu 系统
+if [ -f "/etc/debian_version" ]; then
+    echo "检测到 Debian/Ubuntu 系统，正在安装依赖..."
+    sudo apt-get update
+    sudo apt-get install -y \
+        git \
+        build-essential \
+        clang \
+        llvm \
+        libelf-dev \
+        libbpf-dev \
+        libzmq3-dev \
+        libmsgpack-dev
+    if [ $? -ne 0 ]; then
+        echo "错误：依赖安装失败"
+        exit 1
+    fi
+else
+    echo "注意：非 Debian/Ubuntu 系统，请确保已安装所有必要依赖"
+fi
+
 # 检查是否在根目录下
 if [ ! -f "go.mod" ] || [ ! -d "bpf" ] || [ ! -d "cmd" ]; then
     echo "错误：必须在项目根目录下执行此脚本"

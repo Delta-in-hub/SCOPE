@@ -72,7 +72,23 @@ CFLAGS := -g -Wall -O2
 LDFLAGS :=
 # libbpf 依赖的库
 LIBBPF_LIBS := -lelf -lz # libelf 和 zlib 通常是 libbpf 的依赖
-USER_LIBS := -lzmq -lmsgpack-c -lpthread -lrt
+
+
+# 检测系统是否存在 libmsgpackc 或 libmsgpack-c
+HAVE_MSGPACKC := $(shell ld -lmsgpackc 2>/dev/null; echo $$?)
+HAVE_MSGPACK_C := $(shell ld -lmsgpack-c 2>/dev/null; echo $$?)
+
+# 根据检测结果选择库名
+ifeq ($(HAVE_MSGPACKC), 0)
+    MSGPACK_LIB := -lmsgpackc
+else ifeq ($(HAVE_MSGPACK_C), 0)
+    MSGPACK_LIB := -lmsgpack-c
+else
+    $(error "MessagePack library not found! Install libmsgpack-dev first.")
+endif
+
+# 应用到 USER_LIBS
+USER_LIBS := -lpthread -lrt -lzmq $(MSGPACK_LIB)
 
 # 头文件搜索路径
 # -I$(OUTPUT): 包含生成的 .skel.h 和可能的 vmlinux.h 副本
@@ -81,7 +97,9 @@ USER_LIBS := -lzmq -lmsgpack-c -lpthread -lrt
 # -I$(VMLINUX_H_DIR): 包含 vmlinux.h
 INCLUDES := -I$(APP_SOURCE_DIR) -I$(APP_OUTPUT) -I$(abspath ./libbpf-bootstrap/libbpf/include/uapi) -I$(VMLINUX_H_DIR) -I.
 # 将 INCLUDES 添加到 CFLAGS
-CFLAGS += $(INCLUDES) $(USER_LIBS)
+CFLAGS += $(INCLUDES)
+LDFLAGS += $(USER_LIBS)
+
 
 # BPF 编译器标志
 # -g: 生成调试信息 (对 CO-RE 很重要)
