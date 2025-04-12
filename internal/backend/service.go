@@ -53,11 +53,9 @@ func NewAuthService(userStore models.UserStore, tokenService *middleware.TokenSe
 // RegisterUser 注册新用户
 func (s *AuthService) RegisterUser(email, password, displayName string) (*models.User, error) {
 	// 检查邮箱是否已存在
-	_, err := s.userStore.FindByEmail(email)
-	if err == nil {
+	userindb, _ := s.userStore.FindByEmail(email)
+	if userindb != nil {
 		return nil, ErrEmailAlreadyExists
-	} else if !errors.Is(err, ErrUserNotFound) {
-		return nil, err
 	}
 
 	// 对密码进行哈希处理
@@ -71,6 +69,10 @@ func (s *AuthService) RegisterUser(email, password, displayName string) (*models
 		Email:       email,
 		Password:    string(hashedPassword),
 		DisplayName: displayName,
+	}
+
+	if len(user.Password) > 256 {
+		return nil, errors.New("密码长度超过256个字符")
 	}
 
 	if err := s.userStore.Create(user); err != nil {

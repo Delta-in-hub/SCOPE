@@ -2,18 +2,21 @@ package backend
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"scope/database/redis"
 	"scope/internal/models"
 	"time"
+
+	"github.com/go-playground/validator/v10"
 )
 
 // 请求和响应结构体
 type (
 	LoginRequest struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
+		Email    string `json:"email" validate:"required"`
+		Password string `json:"password" validate:"required"`
 	}
 
 	LoginResponse struct {
@@ -23,9 +26,9 @@ type (
 	}
 
 	RegisterRequest struct {
-		Email       string `json:"email"`
-		Password    string `json:"password"`
-		DisplayName string `json:"display_name"`
+		Email       string `json:"email" validate:"required"`
+		Password    string `json:"password" validate:"required"`
+		DisplayName string `json:"display_name" validate:"required"`
 	}
 
 	RegisterResponse struct {
@@ -78,12 +81,19 @@ func NewHandler(authService *AuthService, redisconf4node redis.Config) *Handler 
 }
 
 // Login 处理用户登录请求
+//
+// @Summary      User login
+// @Description  Authenticates a user and returns access and refresh tokens
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        request body LoginRequest true "Login credentials"
+// @Router       /api/v1/auth/login [post]
+// @Success      200 {object} LoginResponse
+// @Failure      400 {object} string "Invalid request body"
+// @Failure      401 {object} string "Invalid credentials"
+// @Failure      500 {object} string "Login failed"
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
-	// 只接受POST请求
-	if r.Method != http.MethodPost {
-		http.Error(w, "方法不允许", http.StatusMethodNotAllowed)
-		return
-	}
 
 	// 解析请求体
 	var req LoginRequest
@@ -92,20 +102,16 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 验证请求参数
-	if req.Email == "" || req.Password == "" {
-		http.Error(w, "邮箱和密码不能为空", http.StatusBadRequest)
+	validate := validator.New()
+	if err := validate.Struct(req); err != nil {
+		http.Error(w, "无效的请求体", http.StatusBadRequest)
 		return
 	}
 
 	// 处理登录
 	accessToken, refreshToken, expiryTime, err := h.authService.LoginUser(req.Email, req.Password)
 	if err != nil {
-		if err == ErrInvalidCredentials {
-			http.Error(w, "无效的凭证", http.StatusUnauthorized)
-		} else {
-			http.Error(w, "登录失败", http.StatusInternalServerError)
-		}
+		http.Error(w, fmt.Sprintf("登录失败: %v", err), http.StatusUnauthorized)
 		return
 	}
 
@@ -126,12 +132,19 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 }
 
 // Register 处理用户注册请求
+//
+// @Summary      User registration
+// @Description  Registers a new user and returns user information
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        request body RegisterRequest true "Registration information"
+// @Router       /api/v1/auth/register [post]
+// @Success      201 {object} RegisterResponse
+// @Failure      400 {object} string "Invalid request body"
+// @Failure      409 {object} string "Email already exists"
+// @Failure      500 {object} string "Registration failed"
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
-	// 只接受POST请求
-	if r.Method != http.MethodPost {
-		http.Error(w, "方法不允许", http.StatusMethodNotAllowed)
-		return
-	}
 
 	// 解析请求体
 	var req RegisterRequest
@@ -140,20 +153,16 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 验证请求参数
-	if req.Email == "" || req.Password == "" || req.DisplayName == "" {
-		http.Error(w, "邮箱、密码和显示名称不能为空", http.StatusBadRequest)
+	validate := validator.New()
+	if err := validate.Struct(req); err != nil {
+		http.Error(w, "无效的请求体", http.StatusBadRequest)
 		return
 	}
 
 	// 处理注册
 	user, err := h.authService.RegisterUser(req.Email, req.Password, req.DisplayName)
 	if err != nil {
-		if err == ErrEmailAlreadyExists {
-			http.Error(w, "邮箱已被注册", http.StatusConflict)
-		} else {
-			http.Error(w, "注册失败", http.StatusInternalServerError)
-		}
+		http.Error(w, fmt.Sprintf("注册失败: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -171,13 +180,18 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 }
 
 // RefreshToken 处理刷新令牌请求
+//
+// @Summary      Refresh access token
+// @Description  Uses a refresh token to generate a new access token
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        request body RefreshTokenRequest true "Refresh token"
+// @Router       /api/v1/auth/refreshToken [post]
+// @Success      200 {object} RefreshTokenResponse
+// @Failure      400 {object} string "Invalid request body or empty refresh token"
+// @Failure      401 {object} string "Refresh token failed"
 func (h *Handler) RefreshToken(w http.ResponseWriter, r *http.Request) {
-	// 只接受POST请求
-	if r.Method != http.MethodPost {
-		http.Error(w, "方法不允许", http.StatusMethodNotAllowed)
-		return
-	}
-
 	// 解析请求体
 	var req RefreshTokenRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -214,13 +228,19 @@ func (h *Handler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 }
 
 // Logout 处理用户登出请求
+//
+// @Summary      User logout
+// @Description  Invalidates the user's refresh token
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        request body LogoutRequest true "Refresh token"
+// @Router       /api/v1/auth/logout [post]
+// @Security     ApiKeyAuth
+// @Success      204 "No Content"
+// @Failure      400 {object} string "Invalid request body or empty refresh token"
+// @Failure      500 {object} string "Logout failed"
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
-	// 只接受POST请求
-	if r.Method != http.MethodPost {
-		http.Error(w, "方法不允许", http.StatusMethodNotAllowed)
-		return
-	}
-
 	// 解析请求体
 	var req LogoutRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -244,6 +264,18 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// NodeUp registers a node as online
+//
+// @Summary      Register node as online
+// @Description  Updates a node's status to online and returns a token
+// @Tags         node
+// @Accept       json
+// @Produce      json
+// @Param        node body models.NodeInfo true "Node information"
+// @Router       /api/v1/node/up [post]
+// @Success      200 {object} map[string]string "Returns token"
+// @Failure      400 {object} string "Invalid request body or incomplete node information"
+// @Failure      500 {object} string "Failed to update node"
 func (h *NodeHandler) NodeUp(w http.ResponseWriter, r *http.Request) {
 
 	var node models.NodeInfo
@@ -267,6 +299,18 @@ func (h *NodeHandler) NodeUp(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"token": token})
 }
 
+// NodeDown registers a node as offline
+//
+// @Summary      Register node as offline
+// @Description  Updates a node's status to offline
+// @Tags         node
+// @Accept       json
+// @Produce      json
+// @Param        node body models.NodeInfo true "Node information"
+// @Router       /api/v1/node/down [post]
+// @Success      200 "OK"
+// @Failure      400 {object} string "Invalid request body, incomplete node information, node doesn't exist, or token mismatch"
+// @Failure      500 {object} string "Failed to update node"
 func (h *NodeHandler) NodeDown(w http.ResponseWriter, r *http.Request) {
 	var node models.NodeInfo
 	if err := json.NewDecoder(r.Body).Decode(&node); err != nil {
@@ -298,6 +342,17 @@ func (h *NodeHandler) NodeDown(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// NodeList returns a list of all nodes
+//
+// @Summary      Get all nodes
+// @Description  Returns a list of all registered nodes
+// @Tags         node
+// @Accept       json
+// @Produce      json
+// @Router       /api/v1/node/list [get]
+// @Security     ApiKeyAuth
+// @Success      200 {array} models.NodeInfo
+// @Failure      500 {object} string "Failed to get node list"
 func (h *NodeHandler) NodeList(w http.ResponseWriter, r *http.Request) {
 	nodes, err := h.nodeService.ListNodes(r.Context())
 	if err != nil {

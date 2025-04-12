@@ -6,8 +6,8 @@ import (
 
 // User 表示系统中的用户
 type User struct {
-	ID          string    `json:"id"`
-	Email       string    `json:"email"`
+	ID          string    `json:"id" validate:"required"`
+	Email       string    `json:"email" validate:"required"`
 	Password    string    `json:"-"` // 不在JSON响应中显示密码
 	DisplayName string    `json:"display_name" db:"display_name"`
 	CreatedAt   time.Time `json:"created_at" db:"created_at"`
