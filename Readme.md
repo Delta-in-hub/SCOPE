@@ -7,9 +7,10 @@
 [![TimescaleDB](https://img.shields.io/badge/TimescaleDB-⚡-blue)](https://www.timescale.com/)
 [![Chi Router](https://img.shields.io/badge/Chi-Router-blueviolet)](https://github.com/go-chi/chi)
 
-<p align="center">
-  <img src="https://via.placeholder.com/200x200?text=SCOPE" alt="SCOPE Logo" width="200" height="200">
-</p>
+<img src="assets/%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE_20250412_152556.png" alt="屏幕截图_20250412_152556" style="zoom: 25%;" />
+
+
+
 
 > 基于 eBPF 的可扩展综合可观测性平台 - 非侵入、即插即用、高性能、分布式系统监控解决方案
 
@@ -31,9 +32,8 @@ SCOPE 是一个高性能、非侵入的分布式系统可观测性平台，专�
 
 ### 🔧 技术架构
 
-<p align="center">
-  <img src="https://via.placeholder.com/800x400?text=SCOPE+Architecture" alt="SCOPE Architecture">
-</p>
+
+
 
 SCOPE 采用多层架构，包括：
 
@@ -70,9 +70,8 @@ SCOPE 采用多层架构，包括：
 
 ### 💹 高效数据管道
 
-<p align="center">
-  <img src="https://via.placeholder.com/600x200?text=SCOPE+Data+Pipeline" alt="SCOPE Data Pipeline">
-</p>
+
+
 
 - **多级数据缓冲与传输**
   - eBPF Ring Buffer: 内核到用户空间的高效数据传输
@@ -98,11 +97,9 @@ SCOPE 采用多层架构，包括：
 
 ## 🛠️ 技术栈
 
-<p align="center">
-  <img src="https://via.placeholder.com/700x200?text=SCOPE+Tech+Stack" alt="SCOPE Tech Stack">
-</p>
 
-### 核心技术
+
+
 
 | 层次 | 技术 | 优势 |
 |-------|------|------|
@@ -185,7 +182,127 @@ sudo ./scripts/install_agent_manager.sh
 └── web/                   # Vue前端
 ```
 
-## 💯 主要功能与特点
+##  主要功能与特点
+
+
+
+- 对监控节点进行监控, 即插即用, 无需修改应用代码; 
+
+- 当不需要监控时, probe 卸载, 不会有任何性能开销. ***You don't pay for what you don't use*.**
+
+
+
+
+
+- 登陆页面
+
+<img src="assets/image-20250412152921941.png" alt="image-20250412152921941" style="zoom: 33%;" />
+
+- 注册页面
+
+<img src="assets/image-20250412152952743.png" alt="image-20250412152952743" style="zoom: 33%;" />
+
+
+
+- 分布式监控节点检测
+
+<img src="assets/image-20250412153215730.png" alt="image-20250412153215730" style="zoom:67%;" />
+
+
+
+- 探测信息可视化
+
+
+
+![image-20250412153311513](assets/image-20250412153311513.png)
+
+
+
+- CUDA runtime 监控
+
+![image-20250412153727522](assets/image-20250412153727522.png)
+
+
+
+- cudaLaunchKernel 的具体信息, 符号位于哪个文件, 函数 offest 是多少, 调用该cudaLaunchKernel的进程的启动命令等
+
+![image-20250412153811959](assets/image-20250412153811959.png)
+
+- cudaDeviceSynchronize 操作耗时 (ns)
+
+![image-20250412154302678](assets/image-20250412154302678.png)
+
+- cudaMalloc, cudaFree, cudaMemcpy 等......
+
+
+
+
+
+- ggml 库监控
+
+![image-20250412154027456](assets/image-20250412154027456.png)
+
+
+
+内存分配操作监控,  可用于监控/分析内存泄漏问题.
+
+![image-20250412154150583](assets/image-20250412154150583.png)
+
+
+
+- ollama 应用监控
+
+> Ollama is a lightweight, extensible framework for building and running language models on the local machine.
+
+
+
+针对 ollama 应用做到针对性监控, 即插即用, 无需修改代码; 当不需要监控时, probe 卸载, 不会有任何性能开销.
+
+***You don't pay for what you don't use*.**
+
+
+
+![image-20250412154517778](assets/image-20250412154517778.png)
+
+
+
+- 节点本身文件系统操作
+
+可以通过comm筛选, 筛选出 ollama 所打开的所有文件路径, 打开时间, 命令行参数等.
+
+![image-20250412154806869](assets/image-20250412154806869.png)
+
+ollama 在一定时间范围内, 打开文件的次数饼图.
+
+![image-20250412154923070](assets/image-20250412154923070.png)
+
+
+
+- 节点系统操作
+
+
+
+ollama 在一定时间范围内的进程调度次数(通过监控 *sched_switch*) 
+
+![image-20250412155026091](assets/image-20250412155026091.png)
+
+
+
+ollama 在一定时间范围内所调用的系统调用次数.
+
+![image-20250412155300173](assets/image-20250412155300173.png)
+
+
+
+- 监控节点概览状态
+
+
+
+![image-20250412155402618](assets/image-20250412155402618.png)
+
+
+
+
 
 ### 🔍 监控能力
 
@@ -238,8 +355,8 @@ http://localhost:18080/swagger/index.html
 
 本项目采用 GNU General Public License v3.0 许可证 - 详情请参阅 [LICENSE](LICENSE) 文件。
 
----
-
 🌟 如果您觉得这个项目有用，请给它一个星标! 🌟
 
-Copyright ©️ 2025 Delta
+---
+
+
