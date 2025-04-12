@@ -6,7 +6,7 @@ set -e
 # 检查是否为 Debian/Ubuntu 系统
 if [ -f "/etc/debian_version" ]; then
     echo "检测到 Debian/Ubuntu 系统，正在安装依赖..."
-    sudo apt-get update
+    # sudo apt-get update
     sudo apt-get install -y \
         git \
         build-essential \

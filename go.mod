@@ -1,6 +1,6 @@
 module scope
 
-go 1.24.1
+go 1.23.0
 
 require (
 	github.com/denisbrodbeck/machineid v1.0.1

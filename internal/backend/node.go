@@ -12,7 +12,7 @@ import (
 func NodePingChecker(wg *sync.WaitGroup, handler *Handler) {
 	defer wg.Done()
 	nodestore := handler.nodeHandler.nodeService.nodeStore
-	timeticker := time.NewTicker(30 * time.Second)
+	timeticker := time.NewTicker(10 * time.Second)
 	for {
 		select {
 		case <-timeticker.C:
