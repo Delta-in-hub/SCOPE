@@ -33,11 +33,10 @@ SCOPE 是一个高性能、非侵入的分布式系统可观测性平台，专�
 ### 🔧 技术架构
 
 SCOPE 采用多层架构，包括：
-
-1. **数据采集层**: eBPF 程序 (C/libbpf) 通过 uprobes/kprobes 无侵入地挂载到目标进程
-2. **数据传输层**: 使用 Ring Buffer 和 ZeroMQ 实现高效数据传输
-3. **数据处理层**: Go 后端服务处理和转换数据，并存储到 TimescaleDB 和 PostgreSQL
-4. **API 层**: 基于 Chi 框架的 RESTful API，支持 JWT 认证
+1. **数据采集层**: eBPF 程序 (C/libbpf) 通过 uprobes/kprobes/fentry 无侵入地挂载到目标进程或内核
+2. **数据传输层**: 使用 Ring Buffer 和 ZeroMQ 实现高效数据传输, 通过 Redis Streams 实现可靠的消息队列
+3. **数据处理层**: Go 后端服务处理和转换数据, 并存储到 TimescaleDB 和 PostgreSQL
+4. **API 层**: 基于 Chi 框架的 RESTful API，支持 JWT 认证, 提供 API 文档
 5. **可视化层**: 集成 Grafana 和 Perfetto 实现多维度数据可视化
 
 ### 🏗️ 部署架构
@@ -49,8 +48,8 @@ SCOPE 支持多种部署方式：
    - 本地运行后端服务和 Agent 管理器
 
 2. **生产环境部署**:
-   - 数据库层: TimescaleDB 和 Redis 集群
-   - 后端服务: 可通过 Nginx 反向代理实现负载均衡
+   - 数据库层: TimescaleDB 和 Redis
+   - 后端服务: 可通过 Nginx 反向代理实现负载均衡及SSL卸载（SSL offload）
    - Agent 管理器: 在各监控节点上通过 Systemd 服务运行
 
 ## 🔎 核心功能与实现
@@ -80,9 +79,6 @@ SCOPE 支持多种部署方式：
 
 ### 💹 高效数据管道
 
-
-
-
 - **多级数据缓冲与传输**
   - eBPF Ring Buffer: 内核到用户空间的高效数据传输
   - ZeroMQ: 将数据从 libbpf C 程序传输到 golang 的 agent 管理
@@ -90,7 +86,6 @@ SCOPE 支持多种部署方式：
 
 - **高性能数据处理**
   - 多消费者并行处理模型
-  - 批量插入与事务处理
   - 基于 CPU 核心数量的自适应扩展
 
 ### 🔐 现代化身份认证
@@ -106,8 +101,6 @@ SCOPE 支持多种部署方式：
   - Swagger 文档自动生成
 
 ## 🛠️ 技术栈
-
-
 
 
 
@@ -183,7 +176,7 @@ docker-compose up -d
 # 5. 启动后端服务
 ./scope-backend
 
-# 6. 在需要监控的节点上启动 Agent 管理器
+# 6. 在需要监控的节点上启动 Agent 管理器, 需要 root 权限
 sudo ./scope-agent-manager
 ```
 
@@ -386,19 +379,13 @@ SCOPE 提供了完整的 RESTful API，支持用户认证和监控管理。API �
 http://localhost:18080/swagger/index.html
 ```
 
-### 主要 API 组
-
-- **/api/v1/auth**: 用户认证相关 API (登录、注册、刷新令牌)
-- **/api/v1/node**: 监控节点管理 API (添加、删除、查询节点)
-- **/health**: 健康检查端点
-
 ## 👥 作者
 
-- **Delta** - [GitHub](https://github.com/Delta-in-hub)
+- [Delta](https://github.com/Delta-in-hub)
 
 ## 📄 许可证
 
-本项目采用 GNU General Public License v3.0 许可证 - 详情请参阅 [LICENSE](LICENSE) 文件。
+本项目采用 GNU General Public License v3.0 许可证。
 
 🌟 如果您觉得这个项目有用，请给它一个星标! 🌟
 
