@@ -7,7 +7,7 @@
 [![TimescaleDB](https://img.shields.io/badge/TimescaleDB-⚡-blue)](https://www.timescale.com/)
 [![Chi Router](https://img.shields.io/badge/Chi-Router-blueviolet)](https://github.com/go-chi/chi)
 
-<img src="assets/%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE_20250412_152556.png" alt="屏幕截图_20250412_152556" style="zoom: 25%;" />
+<img src="assets/%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE_20250412_152556.png" alt="屏幕截图_20250412_152556" style="zoom: 5%;" />
 
 
 
