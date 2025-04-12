@@ -2,7 +2,7 @@
 #include <bpf/bpf_core_read.h>
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
-#include "ollamabin.h"
+#include "Ollamabin.h"
 
 const volatile pid_t filter_pid = 0;
 const volatile char filter_comm[TASK_COMM_LEN];

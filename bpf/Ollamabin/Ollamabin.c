@@ -12,9 +12,9 @@
 #include <unistd.h>
 
 // 包含你的事件结构定义和 TASK_COMM_LEN
-#include "ollamabin.h"
+#include "Ollamabin.h"
 // 包含 libbpf 生成的骨架头文件
-#include "ollamabin.skel.h"
+#include "Ollamabin.skel.h"
 
 #include "../epoch.h" // 用于 UnixNanoNow()
 #include "../ipc_models.h"
@@ -162,7 +162,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz) {
 
 int main(int argc, char **argv) {
     struct ring_buffer *rb = NULL;
-    struct ollamabin_bpf *skel = NULL;
+    struct Ollamabin_bpf *skel = NULL;
 
     int err;
     LIBBPF_OPTS(bpf_uprobe_opts, uprobe_opts);
@@ -183,7 +183,7 @@ int main(int argc, char **argv) {
     }
     printf("INFO: Publishing ollamabin events to ZMQ endpoint: %s\n", ENDPOINT);
 
-    skel = ollamabin_bpf__open();
+    skel = Ollamabin_bpf__open();
     if (!skel) {
         fprintf(stderr, "Failed to open BPF skeleton\n");
         return 1;
@@ -194,7 +194,7 @@ int main(int argc, char **argv) {
     strncpy((char *)skel->rodata->filter_comm, env.filter_comm, TASK_COMM_LEN);
     skel->rodata->filter_comm[TASK_COMM_LEN - 1] = '\0';
 
-    err = ollamabin_bpf__load(skel);
+    err = Ollamabin_bpf__load(skel);
     if (err) {
         fprintf(stderr, "Failed to load BPF skeleton: %s\n", strerror(-err));
         goto cleanup;
@@ -251,7 +251,7 @@ cleanup:
     printf("\nDetaching probes and cleaning up...\n");
     ring_buffer__free(rb);
 
-    ollamabin_bpf__destroy(skel);
+    Ollamabin_bpf__destroy(skel);
 
     zmq_pub_cleanup(&zmq_handle);
 
