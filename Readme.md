@@ -7,7 +7,7 @@
 [![TimescaleDB](https://img.shields.io/badge/TimescaleDB-⚡-blue)](https://www.timescale.com/)
 [![Chi Router](https://img.shields.io/badge/Chi-Router-blueviolet)](https://github.com/go-chi/chi)
 
-<img src="assets/%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE_20250412_152556.png" alt="屏幕截图_20250412_152556" style="zoom: 5%;" />
+<img src="assets/logo.png" alt="SCOPE Logo" />
 
 
 
@@ -32,9 +32,6 @@ SCOPE 是一个高性能、非侵入的分布式系统可观测性平台，专�
 
 ### 🔧 技术架构
 
-
-
-
 SCOPE 采用多层架构，包括：
 
 1. **数据采集层**: eBPF 程序 (C/libbpf) 通过 uprobes/kprobes 无侵入地挂载到目标进程
@@ -42,6 +39,19 @@ SCOPE 采用多层架构，包括：
 3. **数据处理层**: Go 后端服务处理和转换数据，并存储到 TimescaleDB 和 PostgreSQL
 4. **API 层**: 基于 Chi 框架的 RESTful API，支持 JWT 认证
 5. **可视化层**: 集成 Grafana 和 Perfetto 实现多维度数据可视化
+
+### 🏗️ 部署架构
+
+SCOPE 支持多种部署方式：
+
+1. **开发环境部署**:
+   - 使用 Docker Compose 部署 TimescaleDB 和 Redis
+   - 本地运行后端服务和 Agent 管理器
+
+2. **生产环境部署**:
+   - 数据库层: TimescaleDB 和 Redis 集群
+   - 后端服务: 可通过 Nginx 反向代理实现负载均衡
+   - Agent 管理器: 在各监控节点上通过 Systemd 服务运行
 
 ## 🔎 核心功能与实现
 
@@ -131,6 +141,17 @@ SCOPE 采用多层架构，包括：
 - Go 1.21+
 - Docker 和 Docker Compose
 - CUDA 库 (如需监控 GPU 应用)
+- 构建依赖:
+  - git
+  - build-essential
+  - clang
+  - llvm
+  - libelf-dev
+  - libbpf-dev
+  - libzmq3-dev
+  - libmsgpack-dev
+- 前端构建依赖:
+  - pnpm
 
 
 ### 部署步骤
@@ -144,14 +165,26 @@ cd ebpf-golang
 cp .env.example .env
 # 编辑 .env 文件设置数据库连接、JWT 密钥等
 
-# 3. 编译 eBPF 程序和 Go 后端
-make build-all
+# 3. 构建各个组件
 
-# 4. 使用 Docker 启动服务
+# 构建 eBPF 程序和 Agent 管理器
+./scripts/build-agent.sh
+
+# 构建后端服务
+./scripts/build-backend.sh
+
+# 构建前端界面
+./scripts/build-frontend.sh
+
+# 4. 使用 Docker 部署数据库和 Redis
+cd deploy
 docker-compose up -d
 
-# 5. 部署 Agent 管理器
-sudo ./scripts/install_agent_manager.sh
+# 5. 启动后端服务
+./scope-backend
+
+# 6. 在需要监控的节点上启动 Agent 管理器
+sudo ./scope-agent-manager
 ```
 
 ## 📚 项目结构
@@ -161,6 +194,8 @@ sudo ./scripts/install_agent_manager.sh
 │   ├── cuda/              # CUDA 运行时监控探针
 │   ├── ggml_cuda/         # GGML CUDA 监控探针
 │   ├── ggml_base/         # GGML 基础库监控
+│   ├── ggml_cpu/          # GGML CPU 监控探针
+│   ├── Ollamabin/         # Ollama 二进制监控
 │   ├── syscalls/          # 系统调用监控
 │   ├── execv/             # 进程执行监控
 │   ├── sched/             # 进程调度监控
@@ -171,6 +206,11 @@ sudo ./scripts/install_agent_manager.sh
 ├── database/              # 数据库交互层
 │   ├── postgres/          # PostgreSQL/TimescaleDB 交互
 │   └── redis/             # Redis 交互与 Streams 处理
+├── deploy/                # 部署配置文件
+│   ├── docker/            # Docker 部署配置
+│   ├── grafana/           # Grafana 仪表盘配置
+│   ├── nginx/             # Nginx 配置
+│   └── systemd/           # Systemd 服务配置
 ├── internal/              # 内部包
 │   ├── agentmanager/      # Agent 管理逻辑
 │   ├── backend/           # 后端服务与 API 处理
@@ -179,6 +219,11 @@ sudo ./scripts/install_agent_manager.sh
 │   ├── platform/          # 系统平台相关功能
 │   └── utils/             # 工具函数与加密实现
 ├── scripts/               # 部署和管理脚本
+│   ├── build-agent.sh     # 构建 eBPF 程序和 Agent 管理器
+│   ├── build-backend.sh   # 构建后端服务
+│   ├── build-frontend.sh  # 构建前端界面
+│   ├── runallbpf.sh       # 运行所有 eBPF 程序
+│   └── swagger.sh         # 生成 Swagger 文档
 └── web/                   # Vue前端
 ```
 
