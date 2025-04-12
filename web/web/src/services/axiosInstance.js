@@ -3,8 +3,20 @@ import axios from 'axios';
 import { useAuthStore } from '@/store/auth'; // 假设你的 auth store 路径
 import router from '@/router'; // 引入 router
 
-// 从环境变量读取 API Base URL，如果环境变量没有，则使用 Swagger 中的 host
-const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:18080/api/v1';
+// 根据当前环境选择不同的 API 基础 URL
+let baseURL;
+
+// 判断是否是开发环境
+// import.meta.env.MODE 在 Vite 中会自动设置为 'development' 或 'production'
+if (import.meta.env.MODE === 'development') {
+  // 开发环境使用环境变量或默认值
+  baseURL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:18080/api/v1';
+  console.log('开发环境使用 API 基础 URL:', baseURL);
+} else {
+  // 生产环境使用相对路径，让 Nginx 反向代理处理
+  baseURL = '/api/v1';
+  console.log('生产环境使用相对路径:', baseURL);
+}
 
 const axiosInstance = axios.create({
   baseURL: baseURL,

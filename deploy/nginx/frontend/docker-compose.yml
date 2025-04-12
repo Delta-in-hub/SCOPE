@@ -1,0 +1,14 @@
+version: '3'
+
+services:
+  frontend:
+    image: nginx:1.26
+    container_name: scope-frontend-nginx
+    restart: always
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+      - ../../../web/web/dist:/usr/share/nginx/html
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
