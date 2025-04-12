@@ -7,6 +7,7 @@ import LoginPage from '@/views/auth/LoginPage.vue';
 import RegisterPage from '@/views/auth/RegisterPage.vue';
 import NodeListPage from '@/views/node/NodeListPage.vue';
 import NotFoundPage from '@/views/NotFoundPage.vue';
+import EbpfDashboard from '@/views/EbpfDashboard.vue';
 
 const routes = [
   // 无需认证的路由
@@ -44,6 +45,12 @@ const routes = [
         path: 'system/settings',
         name: 'SystemSettings',
         component: () => import('@/views/system/SystemSettings.vue'),
+      },
+      {
+        path: 'ebpf-dashboard',
+        name: 'EbpfDashboard',
+        component: EbpfDashboard,
+        meta: { requiresAuth: true }
       }
     ]
   },

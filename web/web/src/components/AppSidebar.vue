@@ -18,6 +18,11 @@
       <template #title>节点管理</template>
     </el-menu-item>
     
+    <el-menu-item index="/ebpf-dashboard">
+      <el-icon><DataAnalysis /></el-icon>
+      <template #title>eBPF面板</template>
+    </el-menu-item>
+    
     <el-sub-menu index="system">
       <template #title>
         <el-icon><Setting /></el-icon>
@@ -38,6 +43,7 @@
 <script setup>
 import { ref, computed } from 'vue';
 import { useRoute } from 'vue-router';
+import { DataAnalysis } from '@element-plus/icons-vue';
 
 const route = useRoute();
 const isCollapse = ref(false);
